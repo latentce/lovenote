@@ -1,0 +1,3 @@
+[mcp_servers.astro-docs]
+command = "pnpm"
+args = ["dlx", "mcp-remote", "https://mcp.docs.astro.build/mcp"]
