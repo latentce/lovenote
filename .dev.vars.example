@@ -1,0 +1,11 @@
+# Copy to .dev.vars. Never commit real credentials.
+DATABASE_URL=postgresql://user:password@host/database?sslmode=require
+BETTER_AUTH_SECRET=replace-with-at-least-32-random-characters
+SETUP_SECRET=replace-with-a-separate-long-random-secret
+R2_ACCESS_KEY_ID=replace-with-r2-access-key-id
+R2_SECRET_ACCESS_KEY=replace-with-r2-secret-access-key
+
+# Override the non-secret wrangler vars for local development.
+SITE_URL=http://localhost:4321
+R2_ACCOUNT_ID=replace-with-cloudflare-account-id
+R2_BUCKET_NAME=lovenote-media
