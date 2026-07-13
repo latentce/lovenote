@@ -9,6 +9,7 @@ export interface CreateAuthOptions {
 	allowUserCreation?: boolean;
 	baseURL: string;
 	database: Database;
+	runInBackground?: (promise: Promise<unknown>) => void;
 	secret: string;
 }
 
@@ -16,6 +17,7 @@ export function createAuth({
 	allowUserCreation = false,
 	baseURL,
 	database,
+	runInBackground,
 	secret,
 }: CreateAuthOptions) {
 	const disabledPaths = [
@@ -54,6 +56,14 @@ export function createAuth({
 			storage: 'database',
 		},
 		advanced: {
+			backgroundTasks: runInBackground
+				? {
+						handler: runInBackground,
+					}
+				: undefined,
+			ipAddress: {
+				ipAddressHeaders: ['cf-connecting-ip'],
+			},
 			useSecureCookies: new URL(baseURL).protocol === 'https:',
 		},
 		plugins: [
@@ -67,3 +77,6 @@ export function createAuth({
 }
 
 export type Auth = ReturnType<typeof createAuth>;
+export type AuthSessionResult = Awaited<ReturnType<Auth['api']['getSession']>>;
+export type AuthenticatedSession = NonNullable<AuthSessionResult>['session'];
+export type AuthenticatedUser = NonNullable<AuthSessionResult>['user'];
