@@ -6,6 +6,7 @@ import {
 	MAX_MEMBER_ACCOUNTS,
 	memberStatusInputSchema,
 	resetMemberPasswordInputSchema,
+	revokeMemberSessionsInputSchema,
 	updateMemberPermissionsInputSchema,
 } from './member';
 
@@ -80,6 +81,18 @@ describe('member creation input', () => {
 		expect(memberStatusInputSchema.parse({ userId: 'member-id' })).toEqual({
 			userId: 'member-id',
 		});
+	});
+
+	it('requires explicit confirmation to revoke every member session', () => {
+		expect(revokeMemberSessionsInputSchema.safeParse({ userId: 'member-id' }).success).toBe(
+			false,
+		);
+		expect(
+			revokeMemberSessionsInputSchema.parse({
+				confirmation: 'revoke',
+				userId: 'member-id',
+			}),
+		).toEqual({ confirmation: 'revoke', userId: 'member-id' });
 	});
 
 	it('validates a matching temporary password for an owner reset', () => {

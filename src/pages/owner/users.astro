@@ -23,6 +23,7 @@ const banResult = Astro.getActionResult(actions.users.ban);
 const unbanResult = Astro.getActionResult(actions.users.unban);
 const statusResult = banResult ?? unbanResult;
 const passwordResult = Astro.getActionResult(actions.users.resetPassword);
+const sessionResult = Astro.getActionResult(actions.users.revokeSessions);
 const inputErrors = isInputError(createResult?.error) ? createResult.error.fields : {};
 const members = owner ? await listMembers(Astro.locals.database) : [];
 const canCreateMember = members.length < MAX_MEMBER_ACCOUNTS;
@@ -34,6 +35,9 @@ const statusMember = statusResult?.data
 	: null;
 const passwordMember = passwordResult?.data
 	? members.find((member) => member.id === passwordResult.data.userId)
+	: null;
+const sessionMember = sessionResult?.data
+	? members.find((member) => member.id === sessionResult.data.userId)
 	: null;
 const permissionOptions = [
 	{ checked: true, key: 'createPosts', label: 'Create posts' },
@@ -116,6 +120,16 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 				{passwordResult?.error && (
 					<p class="mt-7 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900" role="alert">
 						{isInputError(passwordResult.error) ? 'Enter matching temporary passwords between 12 and 128 characters.' : passwordResult.error.message}
+					</p>
+				)}
+				{sessionResult?.data?.revoked && (
+					<p class="mt-7 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900" role="status">
+						All active sessions for @{sessionMember?.displayUsername ?? 'the member'} were revoked.
+					</p>
+				)}
+				{sessionResult?.error && (
+					<p class="mt-7 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900" role="alert">
+						{isInputError(sessionResult.error) ? 'Confirm the session revocation request before continuing.' : sessionResult.error.message}
 					</p>
 				)}
 
@@ -217,6 +231,20 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 													</label>
 												</div>
 												<button type="submit" class="rounded-xl bg-stone-900 px-4 py-2 font-semibold text-white hover:bg-stone-700">Reset password</button>
+											</form>
+										</details>
+									)}
+									{!memberIsOwner && (
+										<details class="mt-5 rounded-2xl border border-stone-200 bg-stone-50 p-4 text-sm text-stone-900">
+											<summary class="cursor-pointer font-semibold">Revoke all sessions</summary>
+											<p class="mt-3 text-stone-600">This signs the member out everywhere without changing their password or account status.</p>
+											<form method="POST" action={actions.users.revokeSessions} class="mt-3 space-y-3">
+												<input type="hidden" name="userId" value={member.id} />
+												<label class="flex items-start gap-2">
+													<input type="checkbox" name="confirmation" value="revoke" required class="mt-1" />
+													<span>Confirm signing this member out on every device.</span>
+												</label>
+												<button type="submit" class="rounded-lg bg-stone-900 px-3 py-2 font-semibold text-white hover:bg-stone-700">Revoke sessions</button>
 											</form>
 										</details>
 									)}

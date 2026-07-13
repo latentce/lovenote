@@ -53,6 +53,10 @@ export const banMemberInputSchema = memberStatusInputSchema.extend({
 	confirmation: z.literal('ban'),
 });
 
+export const revokeMemberSessionsInputSchema = memberStatusInputSchema.extend({
+	confirmation: z.literal('revoke'),
+});
+
 export const resetMemberPasswordInputSchema = memberStatusInputSchema
 	.extend({
 		newPassword: z

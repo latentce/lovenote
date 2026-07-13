@@ -20,6 +20,7 @@ import {
 	memberStatusInputSchema,
 	type NewMemberPermissions,
 	resetMemberPasswordInputSchema,
+	revokeMemberSessionsInputSchema,
 	updateMemberPermissionsInputSchema,
 } from '../lib/member';
 
@@ -300,6 +301,64 @@ export const userActions = {
 		input: memberStatusInputSchema,
 		handler: (input, { locals, request }) =>
 			changeMemberBanStatus(locals, request.headers, input.userId, false),
+	}),
+	revokeSessions: defineAction({
+		accept: 'form',
+		input: revokeMemberSessionsInputSchema,
+		handler: async (input, { locals, request }) => {
+			const owner = authorizeUserManagement(locals);
+			const member = await findManageableMember(locals.database, input.userId);
+			if (!member) {
+				throw new ActionError({
+					code: 'NOT_FOUND',
+					message: 'This member is unavailable or cannot have owner sessions revoked.',
+				});
+			}
+
+			try {
+				await locals.auth.api.revokeUserSessions({
+					body: { userId: member.id },
+					headers: request.headers,
+				});
+			} catch (error) {
+				console.warn(
+					JSON.stringify({
+						code: authErrorCode(error),
+						event: 'owner.member_session_revoke_rejected',
+						ownerId: owner.id,
+						userId: member.id,
+					}),
+				);
+
+				if (isAPIError(error) && error.status === 'UNAUTHORIZED') {
+					throw new ActionError({
+						code: 'UNAUTHORIZED',
+						message: 'Your owner session has expired. Sign in again.',
+					});
+				}
+				if (isAPIError(error) && error.status === 'FORBIDDEN') {
+					throw new ActionError({
+						code: 'FORBIDDEN',
+						message: 'The session revocation was not allowed.',
+					});
+				}
+
+				throw new ActionError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'The member sessions could not be revoked. Please try again.',
+				});
+			}
+
+			console.info(
+				JSON.stringify({
+					event: 'owner.member_sessions_revoked',
+					ownerId: owner.id,
+					userId: member.id,
+				}),
+			);
+
+			return { revoked: true, userId: member.id };
+		},
 	}),
 	resetPassword: defineAction({
 		accept: 'form',
