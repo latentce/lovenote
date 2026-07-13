@@ -1,0 +1,30 @@
+<button
+	type="button"
+	data-logout-button
+	class="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition hover:border-stone-400 hover:text-stone-950 focus:outline-none focus:ring-2 focus:ring-rose-300 focus:ring-offset-2"
+>
+	Sign out
+</button>
+
+<script>
+	import { authClient } from '../lib/auth-client';
+
+	const button = document.querySelector<HTMLButtonElement>('[data-logout-button]');
+
+	button?.addEventListener('click', async () => {
+		button.disabled = true;
+
+		try {
+			const { error } = await authClient.signOut();
+
+			if (!error) {
+				window.location.assign('/login');
+				return;
+			}
+		} catch {
+			// Keep the user on the page when the request could not be completed.
+		} finally {
+			button.disabled = false;
+		}
+	});
+</script>
