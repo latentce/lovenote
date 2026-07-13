@@ -17,9 +17,12 @@ const nextPageUrl = page.nextCursor ? `/?cursor=${encodeURIComponent(page.nextCu
 
 <BaseLayout title="LoveNote · Shared moments">
 	<header class="border-b border-stone-200 bg-white">
-		<div class="mx-auto flex w-full max-w-3xl items-center justify-between px-5 py-4 sm:px-8">
+		<div class="mx-auto flex w-full max-w-3xl items-center justify-between gap-5 px-5 py-4 sm:px-8">
 			<a href="/" class="font-semibold tracking-tight text-stone-950">LoveNote</a>
-			<a href="/login" class="text-sm font-medium text-rosewood hover:text-rose-800">Member sign in</a>
+			<nav class="flex items-center gap-5 text-sm font-medium" aria-label="Public navigation">
+				<a href="/archive" class="text-stone-600 hover:text-stone-950">Media archive</a>
+				<a href="/login" class="text-rosewood hover:text-rose-800">Member sign in</a>
+			</nav>
 		</div>
 	</header>
 

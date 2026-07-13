@@ -1,0 +1,44 @@
+---
+import type { PublicArchiveItem } from '../db/archive-queries';
+import { mediaDeliveryUrl } from '../lib/media-delivery';
+
+interface Props {
+	asset: PublicArchiveItem;
+	eager?: boolean;
+}
+
+const { asset, eager = false } = Astro.props;
+const label = asset.altText || asset.originalFilename;
+---
+
+<article class="overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-sm">
+	<div class="flex aspect-square items-center justify-center overflow-hidden bg-stone-100">
+		{asset.kind === 'image' ? (
+			<a href={`/posts/${asset.postId}`} aria-label={`View the post containing ${label}`} class="block h-full w-full">
+				<img
+					src={mediaDeliveryUrl(asset)}
+					alt={asset.altText}
+					width={asset.width ?? undefined}
+					height={asset.height ?? undefined}
+					loading={eager ? 'eager' : 'lazy'}
+					decoding="async"
+					class="h-full w-full object-cover"
+				/>
+			</a>
+		) : (
+			<video
+				src={mediaDeliveryUrl(asset)}
+				width={asset.width ?? undefined}
+				height={asset.height ?? undefined}
+				preload="metadata"
+				controls
+				playsinline
+				aria-label={label}
+				class="max-h-full w-full bg-black object-contain"
+			></video>
+		)}
+	</div>
+	<footer class="px-5 py-4">
+		<a href={`/posts/${asset.postId}`} class="text-sm font-semibold text-rosewood hover:text-rose-800">View post</a>
+	</footer>
+</article>

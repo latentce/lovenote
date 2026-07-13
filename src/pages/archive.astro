@@ -1,0 +1,62 @@
+---
+import ArchiveMediaCard from '../components/ArchiveMediaCard.astro';
+import { listPublicArchive } from '../db/archive-queries';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { decodeArchiveCursor } from '../lib/archive';
+
+const cursorValues = Astro.url.searchParams.getAll('cursor');
+const cursor = cursorValues[0] ?? null;
+
+if (cursorValues.length > 1 || (cursor && !decodeArchiveCursor(cursor))) {
+	return Astro.redirect('/archive');
+}
+
+const page = await listPublicArchive(Astro.locals.database, cursor);
+const nextPageUrl = page.nextCursor
+	? `/archive?cursor=${encodeURIComponent(page.nextCursor)}`
+	: null;
+---
+
+<BaseLayout title="Media archive · LoveNote" description="Browse public photographs and videos shared on LoveNote.">
+	<header class="border-b border-stone-200 bg-white">
+		<div class="mx-auto flex w-full max-w-6xl items-center justify-between gap-5 px-5 py-4 sm:px-8">
+			<a href="/" class="font-semibold tracking-tight text-stone-950">LoveNote</a>
+			<nav class="flex items-center gap-5 text-sm font-medium" aria-label="Public navigation">
+				<a href="/" class="text-stone-600 hover:text-stone-950">Feed</a>
+				<a href="/login" class="text-rosewood hover:text-rose-800">Member sign in</a>
+			</nav>
+		</div>
+	</header>
+
+	<main class="mx-auto w-full max-w-6xl px-5 py-10 sm:px-8 sm:py-14">
+		<section aria-labelledby="archive-heading">
+			<p class="text-sm font-semibold tracking-[0.16em] text-rosewood uppercase">Public archive</p>
+			<h1 id="archive-heading" class="mt-2 text-4xl font-semibold tracking-tight text-stone-950">Photographs and videos</h1>
+			<p class="mt-3 max-w-2xl text-lg leading-8 text-stone-600">Every public attachment, newest first. Originals are shown as they were uploaded.</p>
+
+			{page.items.length === 0 ? (
+				<div class="mt-10 rounded-3xl border border-dashed border-stone-300 bg-white p-10 text-center text-stone-600">
+					No public media has been shared yet.
+				</div>
+			) : (
+				<div class="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+					{page.items.map((asset, index) => (
+						<ArchiveMediaCard asset={asset} eager={index === 0} />
+					))}
+				</div>
+			)}
+
+			{nextPageUrl && (
+				<nav class="mt-10 flex justify-center" aria-label="Archive pagination">
+					<a href={nextPageUrl} rel="next" class="rounded-xl border border-stone-300 bg-white px-5 py-3 font-semibold text-stone-800 shadow-sm hover:border-stone-400 hover:text-stone-950">
+						Older media
+					</a>
+				</nav>
+			)}
+		</section>
+	</main>
+
+	<footer class="border-t border-stone-200 px-5 py-8 text-center text-sm text-stone-500">
+		Public media can be viewed without an account.
+	</footer>
+</BaseLayout>
