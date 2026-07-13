@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
-import { count, eq, inArray } from 'drizzle-orm';
+import { asc, count, eq, inArray } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/neon-http/migrator';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { listPublicArchive } from '../../src/db/archive-queries';
 import { user } from '../../src/db/auth-schema';
 import { createDatabase } from '../../src/db/client';
+import { createPost } from '../../src/db/post-mutations';
 import { findPostDetail, listPrivatePosts, listPublicPosts } from '../../src/db/post-queries';
 import {
 	comments,
@@ -28,6 +29,10 @@ const authorId = `integration-author-${runId}`;
 const otherId = `integration-other-${runId}`;
 const fixtureUserIds = [ownerId, authorId, otherId];
 const tagIds: number[] = [];
+const orderedImageId = randomUUID();
+const orderedVideoId = randomUUID();
+const otherUserAssetId = randomUUID();
+const expiredAssetId = randomUUID();
 
 let schemaReady = false;
 let newestPublicPostId: number;
@@ -232,6 +237,7 @@ afterAll(async () => {
 	if (!schemaReady) return;
 
 	await database.delete(posts).where(inArray(posts.authorId, fixtureUserIds));
+	await database.delete(mediaAssets).where(inArray(mediaAssets.uploaderId, fixtureUserIds));
 	if (tagIds.length > 0) {
 		await database.delete(tags).where(inArray(tags.id, tagIds));
 	}
@@ -281,6 +287,107 @@ describe('Neon database acceptance', () => {
 		expect(secondPage.items).toHaveLength(1);
 		expect(secondPage.nextCursor).toBeNull();
 		expect(new Set([...firstPage.items, ...secondPage.items].map(({ id }) => id)).size).toBe(21);
+	});
+
+	it('attaches mixed media in request order and rejects expired or foreign assets', async () => {
+		await database.insert(mediaAssets).values([
+			{
+				byteSize: 200,
+				etag: 'integration-ordered-video',
+				expiresAt: new Date('2100-01-01T00:00:00.000Z'),
+				id: orderedVideoId,
+				kind: 'video',
+				mimeType: 'video/webm',
+				objectKey: `integration/${runId}/ordered.webm`,
+				originalFilename: 'ordered.webm',
+				uploaderId: authorId,
+				uploadState: 'ready',
+			},
+			{
+				byteSize: 100,
+				etag: 'integration-ordered-image',
+				expiresAt: new Date('2100-01-01T00:00:00.000Z'),
+				id: orderedImageId,
+				kind: 'image',
+				mimeType: 'image/webp',
+				objectKey: `integration/${runId}/ordered.webp`,
+				originalFilename: 'ordered.webp',
+				uploaderId: authorId,
+				uploadState: 'ready',
+			},
+			{
+				byteSize: 100,
+				etag: 'integration-other-user',
+				expiresAt: new Date('2100-01-01T00:00:00.000Z'),
+				id: otherUserAssetId,
+				kind: 'image',
+				mimeType: 'image/webp',
+				objectKey: `integration/${runId}/other-user.webp`,
+				originalFilename: 'other-user.webp',
+				uploaderId: otherId,
+				uploadState: 'ready',
+			},
+			{
+				byteSize: 100,
+				etag: 'integration-expired',
+				expiresAt: new Date('2000-01-01T00:00:00.000Z'),
+				id: expiredAssetId,
+				kind: 'image',
+				mimeType: 'image/webp',
+				objectKey: `integration/${runId}/expired.webp`,
+				originalFilename: 'expired.webp',
+				uploaderId: authorId,
+				uploadState: 'ready',
+			},
+		]);
+
+		const postId = await createPost(database, authorId, {
+			attachmentIds: [orderedVideoId, orderedImageId],
+			body: `integration-${runId}-mixed-media`,
+			tagIds: [],
+			visibility: 'private',
+		});
+		expect(postId).not.toBeNull();
+
+		const attached = await database
+			.select({
+				attachmentOrder: mediaAssets.attachmentOrder,
+				expiresAt: mediaAssets.expiresAt,
+				id: mediaAssets.id,
+			})
+			.from(mediaAssets)
+			.where(eq(mediaAssets.postId, postId!))
+			.orderBy(asc(mediaAssets.attachmentOrder));
+		expect(attached).toEqual([
+			{ attachmentOrder: 0, expiresAt: null, id: orderedVideoId },
+			{ attachmentOrder: 1, expiresAt: null, id: orderedImageId },
+		]);
+
+		await expect(
+			createPost(database, authorId, {
+				attachmentIds: [otherUserAssetId],
+				body: `integration-${runId}-foreign-asset`,
+				tagIds: [],
+				visibility: 'private',
+			}),
+		).resolves.toBeNull();
+		await expect(
+			createPost(database, authorId, {
+				attachmentIds: [expiredAssetId],
+				body: `integration-${runId}-expired-asset`,
+				tagIds: [],
+				visibility: 'private',
+			}),
+		).resolves.toBeNull();
+
+		const [rejectedPostCount] = await database
+			.select({ value: count() })
+			.from(posts)
+			.where(inArray(posts.body, [
+				`integration-${runId}-foreign-asset`,
+				`integration-${runId}-expired-asset`,
+			]));
+		expect(rejectedPostCount.value).toBe(0);
 	});
 
 	it('isolates public, private, hidden, and deleting posts by viewer', async () => {
