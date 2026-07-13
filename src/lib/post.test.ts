@@ -4,6 +4,7 @@ import type { AuthenticatedUser } from './auth';
 import {
 	canViewPost,
 	createPostInputSchema,
+	deletePostInputSchema,
 	decodePostCursor,
 	encodePostCursor,
 	postLifecycleInputSchema,
@@ -111,6 +112,11 @@ describe('post lifecycle input', () => {
 
 	it.each(['', '0', '-1', '1.5', 'not-a-post'])('rejects invalid post ID %j', (postId) => {
 		expect(postLifecycleInputSchema.safeParse({ postId }).success).toBe(false);
+	});
+
+	it('requires explicit permanent-deletion confirmation', () => {
+		expect(deletePostInputSchema.safeParse({ confirmation: 'delete', postId: '42' }).success).toBe(true);
+		expect(deletePostInputSchema.safeParse({ confirmation: 'keep', postId: '42' }).success).toBe(false);
 	});
 });
 

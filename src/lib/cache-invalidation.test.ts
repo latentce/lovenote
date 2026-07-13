@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PostLifecycleResult } from '../db/post-mutations';
-import { postLifecycleCacheTags } from './cache-invalidation';
+import type { StagedPostDeletion } from '../db/post-deletion-mutations';
+import { postDeletionCacheTags, postLifecycleCacheTags } from './cache-invalidation';
 
 const publicPost: PostLifecycleResult = {
 	changed: true,
@@ -34,5 +35,25 @@ describe('post lifecycle cache invalidation', () => {
 		expect(postLifecycleCacheTags(publicPost, 'active')).not.toContain(
 			'media:3df91f2d-582c-4d2a-b24d-c42d2ed58f7d:3',
 		);
+	});
+});
+
+describe('post deletion cache invalidation', () => {
+	it('purges public indexes and the media revision that existed before deletion', () => {
+		const deletion: StagedPostDeletion = {
+			...publicPost,
+			media: publicPost.media.map((media) => ({ ...media, objectKey: 'private/object-key' })),
+			previousStatus: 'active',
+		};
+
+		expect(postDeletionCacheTags(deletion)).toEqual([
+			'post:42',
+			'feed',
+			'archive',
+			'tags',
+			'tag:2',
+			'tag:7',
+			'media:3df91f2d-582c-4d2a-b24d-c42d2ed58f7d:3',
+		]);
 	});
 });

@@ -22,9 +22,11 @@ if (!Astro.locals.user) {
 const result = Astro.getActionResult(actions.posts.create);
 const hideResult = Astro.getActionResult(actions.postLifecycle.hide);
 const restoreResult = Astro.getActionResult(actions.postLifecycle.restore);
+const deletionResult = Astro.getActionResult(actions.postDeletion.delete);
 const lifecycleResult = hideResult ?? restoreResult;
 const inputErrors = isInputError(result?.error) ? result.error.fields : {};
 const canCreatePosts = hasCapability(Astro.locals, 'createPosts');
+const canDeleteOwnPosts = hasCapability(Astro.locals, 'deleteOwnPosts');
 const canHideOwnPosts = hasCapability(Astro.locals, 'hideOwnPosts');
 const canUploadImages = hasCapability(Astro.locals, 'uploadImages');
 const canUploadVideos = hasCapability(Astro.locals, 'uploadVideos');
@@ -49,6 +51,22 @@ const lifecycleError = lifecycleResult?.error
 		? 'The post request was invalid.'
 		: lifecycleResult.error.message
 	: null;
+const deletionSuccess = deletionResult?.data?.completed
+	? `Post #${deletionResult.data.postId} was permanently deleted.`
+	: null;
+const deletionWarning = deletionResult?.data?.completed === false
+	? deletionResult.data
+	: null;
+const deletionError = deletionResult?.error
+	? isInputError(deletionResult.error)
+		? 'Confirm permanent deletion before continuing.'
+		: deletionResult.error.message
+	: null;
+const deletionPhaseMessage = {
+	cache: 'Its cached copies could not be cleared.',
+	database: 'Its database record could not be finalized.',
+	storage: 'One or more media files could not be removed from storage.',
+} as const;
 const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 	dateStyle: 'medium',
 	timeZone: 'UTC',
@@ -184,6 +202,22 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 					</form>
 				</div>
 			)}
+			{deletionSuccess && (
+				<p class="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900" role="status">{deletionSuccess}</p>
+			)}
+			{deletionError && (
+				<p class="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900" role="alert">{deletionError}</p>
+			)}
+			{deletionWarning && (
+				<div class="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950" role="alert">
+					<p>Post #{deletionWarning.postId} is hidden and awaiting cleanup. {deletionPhaseMessage[deletionWarning.phase]}</p>
+					<form method="POST" action={actions.postDeletion.delete} class="mt-3">
+						<input type="hidden" name="postId" value={deletionWarning.postId} />
+						<input type="hidden" name="confirmation" value="delete" />
+						<button type="submit" class="rounded-xl border border-amber-400 bg-white px-4 py-2 text-sm font-semibold hover:bg-amber-100">Retry permanent deletion</button>
+					</form>
+				</div>
+			)}
 
 			{ownPosts.length === 0 ? (
 				<p class="mt-7 rounded-3xl border border-dashed border-stone-300 bg-white p-8 text-center text-stone-600">You have not published any posts yet.</p>
@@ -193,7 +227,11 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 						<li class="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
 							<div class="flex flex-wrap items-start justify-between gap-4">
 								<div>
-									<a href={`/posts/${post.id}`} class="font-semibold text-rosewood hover:text-rose-800">Post #{post.id}</a>
+									{post.status === 'deleting' ? (
+										<p class="font-semibold text-stone-700">Post #{post.id}</p>
+									) : (
+										<a href={`/posts/${post.id}`} class="font-semibold text-rosewood hover:text-rose-800">Post #{post.id}</a>
+									)}
 									<p class="mt-1 text-sm text-stone-500">{formatDate(post.createdAt)} · {post.visibility}</p>
 								</div>
 								<span class:list={[
@@ -207,17 +245,41 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 								{post.body.trim().replace(/\s+/gu, ' ').slice(0, 240) || 'Media-only post'}
 							</p>
 
-							{canHideOwnPosts && post.status !== 'deleting' && (
-								<form
-									method="POST"
-									action={post.status === 'hidden' ? actions.postLifecycle.restore : actions.postLifecycle.hide}
-									class="mt-5"
-								>
-									<input type="hidden" name="postId" value={post.id} />
-									<button type="submit" class="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-800 hover:border-stone-400 hover:bg-stone-50">
-										{post.status === 'hidden' ? 'Restore post' : 'Hide post'}
-									</button>
-								</form>
+							<div class="mt-5 flex flex-wrap items-start gap-3">
+								{canHideOwnPosts && post.status !== 'deleting' && (
+									<form
+										method="POST"
+										action={post.status === 'hidden' ? actions.postLifecycle.restore : actions.postLifecycle.hide}
+									>
+										<input type="hidden" name="postId" value={post.id} />
+										<button type="submit" class="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-800 hover:border-stone-400 hover:bg-stone-50">
+											{post.status === 'hidden' ? 'Restore post' : 'Hide post'}
+										</button>
+									</form>
+								)}
+
+								{canDeleteOwnPosts && post.status === 'deleting' && (
+									<form method="POST" action={actions.postDeletion.delete}>
+										<input type="hidden" name="postId" value={post.id} />
+										<input type="hidden" name="confirmation" value="delete" />
+										<button type="submit" class="rounded-xl border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100">Retry permanent deletion</button>
+									</form>
+								)}
+							</div>
+
+							{canDeleteOwnPosts && post.status !== 'deleting' && (
+								<details class="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-950">
+									<summary class="cursor-pointer text-sm font-semibold">Delete permanently</summary>
+									<p class="mt-3 text-sm leading-6">This removes the post, comments, favorites, tag links, and original media files. It cannot be undone.</p>
+									<form method="POST" action={actions.postDeletion.delete} class="mt-4">
+										<input type="hidden" name="postId" value={post.id} />
+										<label class="flex items-start gap-2 text-sm">
+											<input type="checkbox" name="confirmation" value="delete" required class="mt-1" />
+											<span>I understand this post and its original media files will be permanently deleted.</span>
+										</label>
+										<button type="submit" class="mt-4 rounded-xl bg-red-800 px-4 py-2 text-sm font-semibold text-white hover:bg-red-900">Delete post permanently</button>
+									</form>
+								</details>
 							)}
 						</li>
 					))}

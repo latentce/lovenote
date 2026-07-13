@@ -84,6 +84,7 @@ describe('post lifecycle mutations', () => {
 		expect(compiled.sql).toContain('for update of posts');
 		expect(compiled.sql).toContain('delivery_revision = media_assets.delivery_revision + 1');
 		expect(compiled.sql).toContain('media_to_purge');
+		expect(compiled.sql).toContain('as "tagIds"');
 		expect(compiled.params).toContain('author-id');
 		expect(compiled.params).toContain(42);
 		expect(compiled.params).toContain('hidden');

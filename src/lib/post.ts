@@ -12,6 +12,10 @@ export const postLifecycleInputSchema = z.object({
 	postId: z.coerce.number().int().positive(),
 });
 
+export const deletePostInputSchema = postLifecycleInputSchema.extend({
+	confirmation: z.literal('delete'),
+});
+
 const postBodySchema = z.preprocess(
 	(value) => (value === null ? '' : value),
 	z
@@ -45,6 +49,7 @@ export const createPostInputSchema = z
 	});
 
 export type CreatePostInput = z.infer<typeof createPostInputSchema>;
+export type DeletePostInput = z.infer<typeof deletePostInputSchema>;
 export type PostLifecycleInput = z.infer<typeof postLifecycleInputSchema>;
 export type PostVisibility = z.infer<typeof postVisibilitySchema>;
 export type PostStatus = 'active' | 'hidden' | 'deleting';

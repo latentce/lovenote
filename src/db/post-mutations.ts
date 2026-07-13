@@ -143,7 +143,7 @@ export async function setOwnPostStatus(
 			coalesce(
 				(select array_agg(affected_tags.tag_id order by affected_tags.tag_id) from affected_tags),
 				'{}'::integer[]
-			) as tag_ids
+			) as "tagIds"
 		from target_post
 	`);
 
