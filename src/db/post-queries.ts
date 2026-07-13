@@ -8,7 +8,7 @@ import { comments, favorites, mediaAssets, posts } from './schema';
 
 export const PUBLIC_POST_PAGE_SIZE = 20;
 
-function afterPostCursor(cursor: PostCursor | null): SQL | undefined {
+export function afterPostCursor(cursor: PostCursor | null): SQL | undefined {
 	if (!cursor) {
 		return undefined;
 	}
