@@ -19,6 +19,7 @@
     "owner:recover": "tsx scripts/recover-owner-password.ts",
     "check": "astro check",
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:acceptance": "pnpm build && playwright test",

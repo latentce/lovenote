@@ -126,6 +126,18 @@ pnpm build
 pnpm wrangler deploy --dry-run
 ```
 
+Database acceptance tests apply every committed migration and exercise constraints, cascades,
+pagination, ordering, and visibility against real Postgres. Create a fresh, empty, disposable Neon
+branch, then pass only its connection string:
+
+```sh
+INTEGRATION_DATABASE_URL='postgresql://...' pnpm test:integration
+```
+
+The command refuses to run when that URL is missing or matches `DATABASE_URL`, and the suite stops
+before inserting fixtures if any application table is already populated. Delete the disposable
+branch after the run.
+
 For the local production-runtime smoke suite, prepare an isolated migrated Neon branch and development R2 bucket in `.dev.vars`, install Chromium once with `pnpm exec playwright install chromium`, then run:
 
 ```sh
@@ -195,6 +207,7 @@ A Worker rollback does not revert Postgres. Prefer backward-compatible migration
 | `pnpm owner:recover` | Reset the sole owner's password and sessions |
 | `pnpm check` | Run Astro and TypeScript diagnostics |
 | `pnpm test` | Run backend tests once |
+| `pnpm test:integration` | Apply migrations and run database acceptance tests on a disposable Neon branch |
 | `pnpm test:watch` | Run backend tests in watch mode |
 | `pnpm test:e2e` | Run Playwright against an existing build or `E2E_BASE_URL` |
 | `pnpm test:acceptance` | Build, start local workerd, and run Playwright smoke tests |
