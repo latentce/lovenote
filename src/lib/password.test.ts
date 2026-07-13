@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { changePasswordInputSchema } from './password';
+import { changePasswordInputSchema, passwordValueSchema } from './password';
 
 const validInput = {
 	currentPassword: 'current-password',
@@ -9,6 +9,12 @@ const validInput = {
 };
 
 describe('change password input', () => {
+	it('shares the password limits used by recovery and account changes', () => {
+		expect(passwordValueSchema.safeParse('a'.repeat(12)).success).toBe(true);
+		expect(passwordValueSchema.safeParse('a'.repeat(11)).success).toBe(false);
+		expect(passwordValueSchema.safeParse('a'.repeat(129)).success).toBe(false);
+	});
+
 	it('accepts a new password within the configured limits', () => {
 		expect(changePasswordInputSchema.parse(validInput)).toEqual(validInput);
 	});

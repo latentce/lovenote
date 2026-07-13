@@ -1,9 +1,10 @@
 import { sql } from 'drizzle-orm';
-import { hashPassword } from 'better-auth/crypto';
 import { z } from 'zod';
 
 import type { Database } from '../db/client';
 import { createInternalEmail } from './internal-email';
+import { passwordHasher } from './password-hasher';
+import { passwordValueSchema } from './password';
 
 const setupClaimKey = 'owner';
 const encoder = new TextEncoder();
@@ -17,10 +18,7 @@ export const setupInputSchema = z
 			.min(3, 'Username must be at least 3 characters.')
 			.max(30, 'Username must be at most 30 characters.')
 			.regex(/^[a-zA-Z0-9_.]+$/, 'Use only letters, numbers, underscores, and periods.'),
-		password: z
-			.string()
-			.min(12, 'Password must be at least 12 characters.')
-			.max(128, 'Password must be at most 128 characters.'),
+		password: passwordValueSchema,
 		confirmPassword: z.string(),
 	})
 	.refine(({ confirmPassword, password }) => confirmPassword === password, {
@@ -62,7 +60,7 @@ export async function createOwner(database: Database, input: CreateOwnerInput) {
 	const email = createInternalEmail();
 	const displayUsername = input.username;
 	const username = displayUsername.toLowerCase();
-	const passwordHash = await hashPassword(input.password);
+	const passwordHash = await passwordHasher.hash(input.password);
 
 	// The setup claim and all owner records are one statement so concurrent requests
 	// cannot create multiple owners and a partial setup is always rolled back.

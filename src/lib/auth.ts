@@ -4,6 +4,7 @@ import { admin } from 'better-auth/plugins/admin';
 import { username } from 'better-auth/plugins/username';
 
 import { schema, type Database } from '../db/client';
+import { passwordHasher } from './password-hasher';
 
 export interface CreateAuthOptions {
 	allowUserCreation?: boolean;
@@ -48,6 +49,7 @@ export function createAuth({
 			requireEmailVerification: false,
 			minPasswordLength: 12,
 			maxPasswordLength: 128,
+			password: passwordHasher,
 		},
 		disabledPaths,
 		trustedOrigins: [baseURL],
