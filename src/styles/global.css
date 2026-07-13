@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+	--color-ink: #292524;
+	--color-paper: #fffaf4;
+	--color-rosewood: #9f1239;
+	--font-sans: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+@layer base {
+	:root {
+		color-scheme: light;
+		font-family: var(--font-sans);
+		background: var(--color-paper);
+		color: var(--color-ink);
+	}
+
+	body {
+		min-width: 20rem;
+		margin: 0;
+	}
+
+	button,
+	input {
+		font: inherit;
+	}
+}

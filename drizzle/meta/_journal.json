@@ -15,6 +15,13 @@
       "when": 1783966586554,
       "tag": "0001_needy_dakota_north",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783967706663,
+      "tag": "0002_adorable_loa",
+      "breakpoints": true
     }
   ]
 }

@@ -32,6 +32,11 @@ export const mediaKind = pgEnum('media_kind', ['image', 'video']);
 export const mediaUploadState = pgEnum('media_upload_state', ['pending', 'ready']);
 export const commentStatus = pgEnum('comment_status', ['visible', 'hidden']);
 
+export const setupState = pgTable('setup_state', {
+	key: text('key').primaryKey(),
+	initializedAt: timestamp('initialized_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const memberPermissions = pgTable('member_permissions', {
 	userId: text('user_id')
 		.primaryKey()

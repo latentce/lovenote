@@ -1,0 +1,27 @@
+---
+import '../styles/global.css';
+
+interface Props {
+	description?: string;
+	title: string;
+}
+
+const {
+	description = 'A small collaborative home for words, images, and video.',
+	title,
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width" />
+		<meta name="description" content={description} />
+		<meta name="generator" content={Astro.generator} />
+		<title>{title}</title>
+	</head>
+	<body class="min-h-screen bg-paper text-ink antialiased">
+		<slot />
+	</body>
+</html>
