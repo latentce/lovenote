@@ -126,6 +126,14 @@ pnpm build
 pnpm wrangler deploy --dry-run
 ```
 
+For the local production-runtime smoke suite, prepare an isolated migrated Neon branch and development R2 bucket in `.dev.vars`, install Chromium once with `pnpm exec playwright install chromium`, then run:
+
+```sh
+pnpm test:acceptance
+```
+
+Anonymous, JavaScript-disabled, access-control, media-probe, and security-header checks run by default. Optional member coverage uses `E2E_MEMBER_USERNAME` and `E2E_MEMBER_PASSWORD`; owner coverage uses `E2E_OWNER_USERNAME` and `E2E_OWNER_PASSWORD`. Set `E2E_MUTATIONS=1` only for a disposable member with a non-temporary password to exercise private text creation/deletion, and additionally set `E2E_UPLOADS=1` to exercise the real direct-R2 upload path. The mutation tests delete the posts they create. Set `E2E_BASE_URL` to test an already-running preview or deployment instead of starting local workerd.
+
 For a production change:
 
 1. Create a Neon restore branch and test the migration there.
@@ -188,6 +196,8 @@ A Worker rollback does not revert Postgres. Prefer backward-compatible migration
 | `pnpm check` | Run Astro and TypeScript diagnostics |
 | `pnpm test` | Run backend tests once |
 | `pnpm test:watch` | Run backend tests in watch mode |
+| `pnpm test:e2e` | Run Playwright against an existing build or `E2E_BASE_URL` |
+| `pnpm test:acceptance` | Build, start local workerd, and run Playwright smoke tests |
 | `pnpm build` | Check and build the production Worker |
 | `pnpm preview` | Run the built application in local workerd |
 | `pnpm deploy` | Verify and deploy with Wrangler |

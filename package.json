@@ -20,6 +20,8 @@
     "check": "astro check",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:acceptance": "pnpm build && playwright test",
     "build": "astro check && astro build",
     "preview": "astro preview",
     "deploy": "pnpm build && wrangler deploy",
