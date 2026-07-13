@@ -98,7 +98,8 @@ export const requestUploadInputSchema = z
 
 export type RequestUploadInput = z.infer<typeof requestUploadInputSchema>;
 
-export const completeUploadInputSchema = z.object({ assetId: z.uuid() });
+export const mediaAssetIdSchema = z.uuid();
+export const completeUploadInputSchema = z.object({ assetId: mediaAssetIdSchema });
 
 function bytesMatch(bytes: Uint8Array, offset: number, expected: readonly number[]) {
 	return expected.every((value, index) => bytes[offset + index] === value);
