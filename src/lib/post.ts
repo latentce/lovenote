@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import type { AuthenticatedUser } from './auth';
 import { isActiveMember, isOwner } from './authorization';
+import { postTagIdsSchema } from './tag';
 
 export const MAX_POST_BODY_LENGTH = 10_000;
 export const MAX_POST_ATTACHMENTS = 4;
@@ -24,19 +25,33 @@ const postBodySchema = z.preprocess(
 		.transform((body) => body.replace(/\r\n?/g, '\n')),
 );
 
-export const editPostInputSchema = postLifecycleInputSchema.extend({
-	body: postBodySchema,
-	purgePublic: z.literal('true').optional().transform((value) => value === 'true'),
-	visibility: postVisibilitySchema,
-});
+function rejectDuplicateTags(tagIds: number[], context: z.core.$RefinementCtx) {
+	if (new Set(tagIds).size !== tagIds.length) {
+		context.addIssue({
+			code: 'custom',
+			message: 'Each tag can only be added once.',
+			path: ['tagIds'],
+		});
+	}
+}
+
+export const editPostInputSchema = postLifecycleInputSchema
+	.extend({
+		body: postBodySchema,
+		purgePublic: z.literal('true').optional().transform((value) => value === 'true'),
+		tagIds: postTagIdsSchema,
+		visibility: postVisibilitySchema,
+	})
+	.superRefine(({ tagIds }, context) => rejectDuplicateTags(tagIds, context));
 
 export const createPostInputSchema = z
 	.object({
 		body: postBodySchema,
 		visibility: postVisibilitySchema,
 		attachmentIds: z.array(z.uuid()).max(MAX_POST_ATTACHMENTS).default([]),
+		tagIds: postTagIdsSchema,
 	})
-	.superRefine(({ attachmentIds, body }, context) => {
+	.superRefine(({ attachmentIds, body, tagIds }, context) => {
 		if (body.trim().length === 0 && attachmentIds.length === 0) {
 			context.addIssue({
 				code: 'custom',
@@ -52,6 +67,8 @@ export const createPostInputSchema = z
 				path: ['attachmentIds'],
 			});
 		}
+
+		rejectDuplicateTags(tagIds, context);
 	});
 
 export type CreatePostInput = z.infer<typeof createPostInputSchema>;

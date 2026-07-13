@@ -7,6 +7,21 @@ import { mediaAssets, posts, postTags, tags } from './schema';
 
 const publicPostCount = sql<number>`count(distinct ${posts.id})::integer`;
 
+export function buildAssignableTagsQuery(database: Pick<Database, 'select'>) {
+	return database
+		.select({
+			displayName: tags.displayName,
+			id: tags.id,
+			slug: tags.slug,
+		})
+		.from(tags)
+		.orderBy(asc(tags.displayName), asc(tags.slug));
+}
+
+export async function listAssignableTags(database: Database) {
+	return buildAssignableTagsQuery(database);
+}
+
 export function buildPublicTagsQuery(database: Pick<Database, 'select'>, slug?: string) {
 	const isLookup = slug !== undefined;
 	const query = database

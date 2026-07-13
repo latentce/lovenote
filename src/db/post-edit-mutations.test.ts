@@ -22,7 +22,7 @@ describe('post edit mutation', () => {
 		};
 		const { database, execute } = databaseReturning([expected]);
 
-		await expect(updateOwnPost(database, 'author-id', { body: '', postId: 42, visibility: 'private' })).resolves.toEqual(expected);
+		await expect(updateOwnPost(database, 'author-id', { body: '', postId: 42, tagIds: [], visibility: 'private' })).resolves.toEqual(expected);
 
 		const query = execute.mock.calls[0]?.[0];
 		const compiled = new PgDialect().sqlToQuery(query!);
@@ -33,6 +33,8 @@ describe('post edit mutation', () => {
 		expect(compiled.sql).toContain('attachment_count.value > 0');
 		expect(compiled.sql).toContain('as "previousVisibility"');
 		expect(compiled.sql).toContain('as "tagIds"');
+		expect(compiled.sql).toContain('delete from post_tags');
+		expect(compiled.sql).toContain('insert into post_tags');
 		expect(compiled.params).toContain('author-id');
 		expect(compiled.params).toContain(42);
 	});
@@ -49,7 +51,7 @@ describe('post edit mutation', () => {
 		};
 		const { database, execute } = databaseReturning([expected]);
 
-		await updateOwnPost(database, 'author-id', { body: 'Private now', postId: 42, visibility: 'private' });
+		await updateOwnPost(database, 'author-id', { body: 'Private now', postId: 42, tagIds: [7], visibility: 'private' });
 
 		const query = execute.mock.calls[0]?.[0];
 		const compiled = new PgDialect().sqlToQuery(query!);
@@ -61,6 +63,6 @@ describe('post edit mutation', () => {
 	it('returns null when ownership, status, or the text-or-media rule fails', async () => {
 		const { database } = databaseReturning([]);
 
-		await expect(updateOwnPost(database, 'other-user', { body: '', postId: 42, visibility: 'public' })).resolves.toBeNull();
+		await expect(updateOwnPost(database, 'other-user', { body: '', postId: 42, tagIds: [], visibility: 'public' })).resolves.toBeNull();
 	});
 });

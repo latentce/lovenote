@@ -4,10 +4,24 @@ import type { PostLifecycleResult } from '../db/post-mutations';
 import type { StagedPostDeletion } from '../db/post-deletion-mutations';
 import type { PostEditResult } from '../db/post-edit-mutations';
 import {
+	postCreationCacheTags,
 	postDeletionCacheTags,
 	postEditCacheTags,
 	postLifecycleCacheTags,
 } from './cache-invalidation';
+
+describe('post creation cache invalidation', () => {
+	it('purges public listings and each assigned tag archive', () => {
+		expect(postCreationCacheTags([2, 7], 'public')).toEqual([
+			'feed',
+			'archive',
+			'tags',
+			'tag:2',
+			'tag:7',
+		]);
+		expect(postCreationCacheTags([2], 'private')).toEqual([]);
+	});
+});
 
 const publicPost: PostLifecycleResult = {
 	changed: true,

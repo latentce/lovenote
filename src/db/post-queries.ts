@@ -244,6 +244,9 @@ export function buildOwnPostForEditQuery(
 				columns: { id: true },
 				where: eq(mediaAssets.uploadState, 'ready'),
 			},
+			tags: {
+				columns: { tagId: true },
+			},
 		},
 	});
 }
@@ -256,8 +259,12 @@ export async function findOwnPostForEdit(
 	const post = await buildOwnPostForEditQuery(database, authorId, postId);
 	if (!post) return null;
 
-	const { media, ...editablePost } = post;
-	return { ...editablePost, hasMedia: media.length > 0 };
+	const { media, tags: assignedTags, ...editablePost } = post;
+	return {
+		...editablePost,
+		hasMedia: media.length > 0,
+		tagIds: assignedTags.map(({ tagId }) => tagId),
+	};
 }
 
 export function buildPostDetailQuery(

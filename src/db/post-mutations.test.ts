@@ -23,6 +23,7 @@ describe('post creation mutation', () => {
 				body: 'A post',
 				visibility: 'private',
 				attachmentIds: [],
+				tagIds: [],
 			}),
 		).resolves.toBe(42);
 		expect(execute).toHaveBeenCalledOnce();
@@ -37,6 +38,7 @@ describe('post creation mutation', () => {
 				body: '',
 				visibility: 'public',
 				attachmentIds: [attachmentId],
+				tagIds: [],
 			}),
 		).resolves.toBeNull();
 
@@ -55,6 +57,7 @@ describe('post creation mutation', () => {
 			body,
 			visibility: 'public',
 			attachmentIds: [],
+			tagIds: [2, 7],
 		});
 
 		const query = execute.mock.calls[0]?.[0];
@@ -62,6 +65,9 @@ describe('post creation mutation', () => {
 		expect(compiledQuery.sql).not.toContain(body);
 		expect(compiledQuery.params).toContain('author-id');
 		expect(compiledQuery.params).toContain(body);
+		expect(compiledQuery.sql).toContain('insert into post_tags');
+		expect(compiledQuery.params).toContain(2);
+		expect(compiledQuery.params).toContain(7);
 	});
 });
 

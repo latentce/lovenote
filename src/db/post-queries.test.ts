@@ -133,6 +133,7 @@ describe('author post management query', () => {
 		expect(query.sql).toContain('"posts"."author_id" = $');
 		expect(query.sql).toContain('"posts"."status" <> $');
 		expect(query.sql).toContain('"posts_media"."upload_state" = $');
+		expect(query.sql).toContain('"posts_tags"."tag_id"');
 		expect(query.sql).not.toContain('object_key');
 		expect(query.params).toContain('author-id');
 		expect(query.params).toContain(42);

@@ -19,6 +19,7 @@ export function normalizeTagSlug(value: string) {
 }
 
 const tagIdSchema = z.coerce.number().int().positive();
+export const postTagIdsSchema = z.array(tagIdSchema).max(MAX_POST_TAGS).default([]);
 const displayNameSchema = z
 	.string()
 	.trim()

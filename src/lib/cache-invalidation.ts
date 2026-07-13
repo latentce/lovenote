@@ -3,6 +3,17 @@ import type { StagedPostDeletion } from '../db/post-deletion-mutations';
 import type { PostEditResult } from '../db/post-edit-mutations';
 import type { PostStatus } from './post';
 
+export function postCreationCacheTags(tagIds: number[], visibility: 'public' | 'private') {
+	if (visibility === 'private') return [];
+
+	return [
+		'feed',
+		'archive',
+		'tags',
+		...tagIds.map((tagId) => `tag:${tagId}`),
+	];
+}
+
 export function postLifecycleCacheTags(
 	post: PostLifecycleResult,
 	nextStatus: Extract<PostStatus, 'active' | 'hidden'>,

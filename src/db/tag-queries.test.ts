@@ -1,10 +1,23 @@
 import { drizzle } from 'drizzle-orm/neon-http';
 import { describe, expect, it } from 'vitest';
 
-import { buildPublicTagPostsQuery, buildPublicTagsQuery } from './tag-queries';
+import {
+	buildAssignableTagsQuery,
+	buildPublicTagPostsQuery,
+	buildPublicTagsQuery,
+} from './tag-queries';
 import { schema } from './client';
 
 describe('public tag queries', () => {
+	it('lists all tag labels for protected post forms without post metadata', () => {
+		const database = drizzle.mock({ schema });
+		const query = buildAssignableTagsQuery(database).toSQL();
+
+		expect(query.sql).toContain('from "tags"');
+		expect(query.sql).toContain('order by "tags"."display_name" asc');
+		expect(query.sql).not.toContain('post_tags');
+	});
+
 	it('lists only tags joined to active public posts with public counts', () => {
 		const database = drizzle.mock({ schema });
 		const query = buildPublicTagsQuery(database).toSQL();

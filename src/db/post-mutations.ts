@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import type { CreatePostInput, PostStatus } from '../lib/post';
 import type { Database } from './client';
 import { manageablePostAuthorFilter } from './mutation-filters';
+import { requestedTagIdsQuery } from './tag-request';
 
 export type PostLifecycleResult = {
 	changed: boolean;
@@ -34,12 +35,16 @@ function requestedAssetsQuery(attachmentIds: string[]) {
 export async function createPost(database: Database, authorId: string, input: CreatePostInput) {
 	const attachmentCount = input.attachmentIds.length;
 	const requestedAssets = requestedAssetsQuery(input.attachmentIds);
+	const requestedTagCount = input.tagIds.length;
+	const requestedTags = requestedTagIdsQuery(input.tagIds);
 
 	// Locking eligible assets makes concurrent attempts to attach the same upload serialize.
 	// The post, its validation, and all attachment updates remain one atomic statement.
 	const result = await database.execute<{ id: number }>(sql`
 		with requested_assets as (
 			${requestedAssets}
+		), requested_tags as (
+			${requestedTags}
 		), eligible_assets as materialized (
 			select media_assets.id, requested_assets.attachment_order
 			from media_assets
@@ -52,11 +57,19 @@ export async function createPost(database: Database, authorId: string, input: Cr
 		), eligible_count as (
 			select count(*)::integer as value
 			from eligible_assets
+		), eligible_tags as materialized (
+			select tags.id
+			from tags
+			inner join requested_tags on requested_tags.id = tags.id
+		), eligible_tag_count as (
+			select count(*)::integer as value
+			from eligible_tags
 		), created_post as (
 			insert into posts (author_id, body, visibility)
 			select ${authorId}, ${input.body}, ${input.visibility}
-			from eligible_count
+			from eligible_count, eligible_tag_count
 			where eligible_count.value = ${attachmentCount}
+				and eligible_tag_count.value = ${requestedTagCount}
 			returning id
 		), attached_assets as (
 			update media_assets
@@ -68,10 +81,16 @@ export async function createPost(database: Database, authorId: string, input: Cr
 			from eligible_assets, created_post
 			where media_assets.id = eligible_assets.id
 			returning media_assets.id
+		), attached_tags as (
+			insert into post_tags (post_id, tag_id)
+			select created_post.id, eligible_tags.id
+			from created_post, eligible_tags
+			returning post_tags.tag_id
 		)
 		select created_post.id
 		from created_post
 		where (select count(*)::integer from attached_assets) = ${attachmentCount}
+			and (select count(*)::integer from attached_tags) = ${requestedTagCount}
 	`);
 
 	return result.rows[0]?.id ?? null;

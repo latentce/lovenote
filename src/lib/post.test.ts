@@ -72,6 +72,24 @@ describe('post input', () => {
 			}).success,
 		).toBe(false);
 	});
+
+	it('coerces tag form values and rejects duplicates or more than 30 tags', () => {
+		expect(
+			createPostInputSchema.parse({ body: 'Tagged', tagIds: ['2', '7'], visibility: 'public' })
+				.tagIds,
+		).toEqual([2, 7]);
+		expect(
+			createPostInputSchema.safeParse({ body: 'Tagged', tagIds: ['2', '2'], visibility: 'public' })
+				.success,
+		).toBe(false);
+		expect(
+			createPostInputSchema.safeParse({
+				body: 'Tagged',
+				tagIds: Array.from({ length: 31 }, (_, index) => index + 1),
+				visibility: 'public',
+			}).success,
+		).toBe(false);
+	});
 });
 
 describe('post visibility', () => {
@@ -123,10 +141,11 @@ describe('post lifecycle input', () => {
 
 describe('post edit input', () => {
 	it('normalizes form values while allowing the database to validate media-only posts', () => {
-		expect(editPostInputSchema.parse({ body: 'one\r\ntwo', postId: '42', visibility: 'private' })).toEqual({
+			expect(editPostInputSchema.parse({ body: 'one\r\ntwo', postId: '42', visibility: 'private' })).toEqual({
 			body: 'one\ntwo',
 			postId: 42,
 			purgePublic: false,
+			tagIds: [],
 			visibility: 'private',
 		});
 		expect(editPostInputSchema.safeParse({ body: '', postId: '42', visibility: 'public' }).success).toBe(true);

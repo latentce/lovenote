@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 
 import type { EditPostInput, PostStatus, PostVisibility } from '../lib/post';
 import type { Database } from './client';
+import { requestedTagIdsQuery } from './tag-request';
 
 export type PostEditResult = {
 	changed: boolean;
@@ -16,10 +17,21 @@ export type PostEditResult = {
 export async function updateOwnPost(
 	database: Database,
 	authorId: string,
-	input: Pick<EditPostInput, 'body' | 'postId' | 'visibility'>,
+	input: Pick<EditPostInput, 'body' | 'postId' | 'tagIds' | 'visibility'>,
 ): Promise<PostEditResult | null> {
+	const requestedTagCount = input.tagIds.length;
+	const requestedTags = requestedTagIdsQuery(input.tagIds);
 	const result = await database.execute<PostEditResult>(sql`
-		with target_post as materialized (
+		with requested_tags as (
+			${requestedTags}
+		), eligible_tags as materialized (
+			select tags.id
+			from tags
+			inner join requested_tags on requested_tags.id = tags.id
+		), eligible_tag_count as (
+			select count(*)::integer as value
+			from eligible_tags
+		), target_post as materialized (
 			select posts.id, posts.body, posts.status, posts.visibility
 			from posts
 			where posts.id = ${input.postId}
@@ -31,11 +43,18 @@ export async function updateOwnPost(
 			from media_assets
 			inner join target_post on target_post.id = media_assets.post_id
 			where media_assets.upload_state = 'ready'
+		), current_tags as materialized (
+			select post_tags.tag_id
+			from post_tags
+			inner join target_post on target_post.id = post_tags.post_id
 		), valid_target as (
 			select target_post.*
-			from target_post, attachment_count
-			where char_length(regexp_replace(${input.body}, '[[:space:]]', '', 'g')) > 0
+			from target_post, attachment_count, eligible_tag_count
+			where (
+				char_length(regexp_replace(${input.body}, '[[:space:]]', '', 'g')) > 0
 				or attachment_count.value > 0
+			)
+				and eligible_tag_count.value = ${requestedTagCount}
 		), updated_post as (
 			update posts
 			set
@@ -45,6 +64,20 @@ export async function updateOwnPost(
 			from valid_target
 			where posts.id = valid_target.id
 			returning posts.id
+		), removed_tags as (
+			delete from post_tags
+			using valid_target
+			where post_tags.post_id = valid_target.id
+				and not exists (
+					select 1 from eligible_tags where eligible_tags.id = post_tags.tag_id
+				)
+			returning post_tags.tag_id
+		), inserted_tags as (
+			insert into post_tags (post_id, tag_id)
+			select valid_target.id, eligible_tags.id
+			from valid_target, eligible_tags
+			on conflict (post_id, tag_id) do nothing
+			returning post_tags.tag_id
 		), rotated_media as (
 			update media_assets
 			set
@@ -72,14 +105,16 @@ export async function updateOwnPost(
 			select retry_media.id, retry_media.previous_revision
 			from retry_media
 		), affected_tags as (
-			select post_tags.tag_id
-			from post_tags
-			inner join valid_target on valid_target.id = post_tags.post_id
+			select current_tags.tag_id from current_tags
+			union
+			select eligible_tags.id from eligible_tags
 		)
 		select
 			valid_target.id,
 			(valid_target.body is distinct from ${input.body}
-				or valid_target.visibility is distinct from ${input.visibility}) as changed,
+				or valid_target.visibility is distinct from ${input.visibility}
+				or exists (select 1 from removed_tags)
+				or exists (select 1 from inserted_tags)) as changed,
 			valid_target.status,
 			valid_target.visibility as "previousVisibility",
 			${input.visibility}::post_visibility as visibility,

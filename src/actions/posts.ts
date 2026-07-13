@@ -3,7 +3,7 @@ import { ActionError, defineAction } from 'astro:actions';
 import { updateOwnPost } from '../db/post-edit-mutations';
 import { createPost } from '../db/post-mutations';
 import { AuthorizationError, requireCapability } from '../lib/authorization';
-import { postEditCacheTags } from '../lib/cache-invalidation';
+import { postCreationCacheTags, postEditCacheTags } from '../lib/cache-invalidation';
 import { createPostInputSchema, editPostInputSchema } from '../lib/post';
 
 function authorizePostCreation(locals: App.Locals) {
@@ -63,35 +63,56 @@ export const postActions = {
 	create: defineAction({
 		accept: 'form',
 		input: createPostInputSchema,
-		handler: async (input, { locals }) => {
+		handler: async (input, { cache, locals }) => {
 			const author = authorizePostCreation(locals);
 			const postId = await createPost(locals.database, author.id, input);
 
 			if (!postId) {
 				console.warn(
 					JSON.stringify({
-						event: 'post.create_attachments_rejected',
+						event: 'post.create_inputs_rejected',
 						attachmentCount: input.attachmentIds.length,
+						tagCount: input.tagIds.length,
 						userId: author.id,
 					}),
 				);
 				throw new ActionError({
 					code: 'CONFLICT',
-					message: 'One or more attachments are no longer available. Remove them and try again.',
+					message: 'One or more attachments or tags are no longer available. Update the post and try again.',
 				});
+			}
+
+			let cachePurged = true;
+			if (cache.enabled && input.visibility === 'public') {
+				try {
+					await cache.invalidate({
+						tags: postCreationCacheTags(input.tagIds, input.visibility),
+					});
+				} catch (error) {
+					cachePurged = false;
+					console.error(
+						JSON.stringify({
+							errorType: error instanceof Error ? error.name : 'UnknownError',
+							event: 'post.create_cache_purge_failed',
+							postId,
+						}),
+					);
+				}
 			}
 
 			console.info(
 				JSON.stringify({
+					cachePurged,
 					event: 'post.created',
 					attachmentCount: input.attachmentIds.length,
 					postId,
+					tagCount: input.tagIds.length,
 					userId: author.id,
 					visibility: input.visibility,
 				}),
 			);
 
-			return { postId };
+			return { cachePurged, postId };
 		},
 	}),
 	update: defineAction({
