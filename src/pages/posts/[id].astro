@@ -1,4 +1,8 @@
 ---
+import { actions, isInputError } from 'astro:actions';
+
+import CommentComposer from '../../components/CommentComposer.astro';
+import CommentControls from '../../components/CommentControls.astro';
 import PostBody from '../../components/PostBody.astro';
 import PostCard from '../../components/PostCard.astro';
 import { findPostDetail } from '../../db/post-queries';
@@ -27,6 +31,14 @@ if (!isCacheablePublicPost) {
 const pageTitle = post ? `Post by ${post.authorUsername} · LoveNote` : 'Post not found · LoveNote';
 const pageDescription = post?.body.trim().replace(/\s+/g, ' ').slice(0, 160) ||
 	(post ? 'A shared photo or video on LoveNote.' : 'This LoveNote post is not available.');
+const commentResult = Astro.getActionResult(actions.comments.create);
+const commentInputErrors = isInputError(commentResult?.error) ? commentResult.error.fields : {};
+const commentSuccess = Boolean(
+	post && commentResult?.data?.commentId && commentResult.data.postId === post.id,
+);
+const commentError = commentResult?.error && !isInputError(commentResult.error)
+	? commentResult.error.message
+	: null;
 const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 	dateStyle: 'medium',
 	timeStyle: 'short',
@@ -76,6 +88,25 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 					<div class="flex items-baseline justify-between gap-4">
 						<h2 id="comments-heading" class="text-2xl font-semibold tracking-tight text-stone-950">Comments</h2>
 						<p class="text-sm text-stone-500">{post.comments.length} visible</p>
+					</div>
+
+					<div class="mt-5">
+						<CommentControls
+							server:defer
+							postId={post.id}
+							bodyErrors={commentInputErrors.body}
+							errorMessage={commentError}
+							success={commentSuccess}
+						>
+							<div slot="fallback">
+								<CommentComposer
+									postId={post.id}
+									bodyErrors={commentInputErrors.body}
+									errorMessage={commentError}
+									success={commentSuccess}
+								/>
+							</div>
+						</CommentControls>
 					</div>
 
 					{post.comments.length === 0 ? (
