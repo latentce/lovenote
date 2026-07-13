@@ -20,6 +20,7 @@ if (!owner) Astro.response.status = 403;
 const hideResult = Astro.getActionResult(actions.postLifecycle.hide);
 const restoreResult = Astro.getActionResult(actions.postLifecycle.restore);
 const deletionResult = Astro.getActionResult(actions.postDeletion.delete);
+const cleanupResult = Astro.getActionResult(actions.uploads.cleanupExpired);
 const lifecycleResult = hideResult ?? restoreResult;
 const posts = owner ? await listModeratablePosts(Astro.locals.database) : [];
 const lifecycleSuccess = lifecycleResult?.data?.cachePurged
@@ -78,6 +79,21 @@ const formatDateTime = (date: Date) => new Intl.DateTimeFormat('en-US', {
 		) : (
 			<>
 				<p class="mt-3 text-stone-600">Review the {MODERATABLE_POST_LIMIT} newest posts across all authors, visibility settings, and cleanup states.</p>
+
+				<section class="mt-7 rounded-2xl border border-stone-200 bg-white p-4" aria-labelledby="upload-cleanup-heading">
+					<h2 id="upload-cleanup-heading" class="font-semibold text-stone-950">Expired upload cleanup</h2>
+					<p class="mt-2 text-sm text-stone-600">Remove up to 100 expired, unattached upload objects and their metadata.</p>
+					{cleanupResult?.data && (
+						<p class="mt-3 text-sm text-emerald-800" role="status">Removed {cleanupResult.data.deleted} of {cleanupResult.data.found} expired uploads found.</p>
+					)}
+					{cleanupResult?.error && (
+						<p class="mt-3 text-sm text-red-800" role="alert">{isInputError(cleanupResult.error) ? 'Confirm cleanup before continuing.' : cleanupResult.error.message}</p>
+					)}
+					<form method="POST" action={actions.uploads.cleanupExpired} class="mt-4 flex flex-wrap items-center gap-3">
+						<label class="flex items-start gap-2 text-sm text-stone-800"><input type="checkbox" name="confirmation" value="cleanup" required class="mt-1" /><span>Confirm expired upload cleanup.</span></label>
+						<button type="submit" class="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold hover:bg-stone-50">Run cleanup</button>
+					</form>
+				</section>
 
 				{lifecycleSuccess && (
 					<p class="mt-7 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900" role="status">{lifecycleSuccess}</p>

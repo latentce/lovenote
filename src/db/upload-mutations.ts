@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
 
 import type { MediaKind, RequestUploadInput } from '../lib/media';
 import type { Database } from './client';
@@ -66,4 +66,47 @@ export async function markUploadReady(
 		.returning({ id: mediaAssets.id });
 
 	return updated[0]?.id ?? null;
+}
+
+export function buildExpiredUploadsQuery(
+	database: Pick<Database, 'select'>,
+	now: Date,
+	limit: number,
+) {
+	return database
+		.select({ id: mediaAssets.id, objectKey: mediaAssets.objectKey })
+		.from(mediaAssets)
+		.where(
+			and(
+				isNull(mediaAssets.postId),
+				isNotNull(mediaAssets.expiresAt),
+				lte(mediaAssets.expiresAt, now),
+			),
+		)
+		.orderBy(asc(mediaAssets.expiresAt), asc(mediaAssets.id))
+		.limit(limit);
+}
+
+export async function listExpiredUploads(database: Database, now: Date, limit: number) {
+	return buildExpiredUploadsQuery(database, now, limit);
+}
+
+export async function deleteExpiredUploadRecords(
+	database: Database,
+	assetIds: string[],
+	now: Date,
+) {
+	if (assetIds.length === 0) return [];
+
+	return database
+		.delete(mediaAssets)
+		.where(
+			and(
+				inArray(mediaAssets.id, assetIds),
+				isNull(mediaAssets.postId),
+				isNotNull(mediaAssets.expiresAt),
+				lte(mediaAssets.expiresAt, now),
+			),
+		)
+		.returning({ id: mediaAssets.id });
 }

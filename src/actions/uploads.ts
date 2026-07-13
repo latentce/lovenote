@@ -2,8 +2,14 @@ import { ActionError, defineAction } from 'astro:actions';
 import { env } from 'cloudflare:workers';
 
 import { findOwnedUpload, markUploadReady, recordPendingUpload } from '../db/upload-mutations';
-import { AuthorizationError, requireCapability, requireMember } from '../lib/authorization';
 import {
+	AuthorizationError,
+	requireCapability,
+	requireMember,
+	requireOwner,
+} from '../lib/authorization';
+import {
+	cleanupExpiredUploadsInputSchema,
 	completeUploadInputSchema,
 	mediaKindForMimeType,
 	isSupportedMediaType,
@@ -15,6 +21,11 @@ import {
 	uploadedObjectMetadataMatches,
 	type MediaKind,
 } from '../lib/media';
+import {
+	cleanupExpiredUploads,
+	OPPORTUNISTIC_UPLOAD_CLEANUP_LIMIT,
+	OWNER_UPLOAD_CLEANUP_LIMIT,
+} from '../lib/upload-cleanup';
 
 function safeErrorType(error: unknown) {
 	return error instanceof Error ? error.name : 'UnknownError';
@@ -58,7 +69,55 @@ function authorizeUpload(locals: App.Locals, kind: MediaKind) {
 	}
 }
 
+function authorizeUploadCleanup(locals: App.Locals) {
+	try {
+		return requireOwner(locals);
+	} catch (error) {
+		if (!(error instanceof AuthorizationError)) throw error;
+		if (error.code === 'AUTHENTICATION_REQUIRED') {
+			throw new ActionError({ code: 'UNAUTHORIZED', message: 'Sign in as the owner.' });
+		}
+		throw new ActionError({
+			code: 'FORBIDDEN',
+			message: 'Only the owner can run upload cleanup.',
+		});
+	}
+}
+
 export const uploadActions = {
+	cleanupExpired: defineAction({
+		accept: 'form',
+		input: cleanupExpiredUploadsInputSchema,
+		handler: async (_input, { locals }) => {
+			const owner = authorizeUploadCleanup(locals);
+			try {
+				const result = await cleanupExpiredUploads(locals.database, env.MEDIA_BUCKET, {
+					limit: OWNER_UPLOAD_CLEANUP_LIMIT,
+				});
+				console.info(
+					JSON.stringify({
+						deletedCount: result.deleted,
+						event: 'upload.cleanup_completed',
+						foundCount: result.found,
+						userId: owner.id,
+					}),
+				);
+				return result;
+			} catch (error) {
+				console.error(
+					JSON.stringify({
+						event: 'upload.cleanup_failed',
+						errorType: safeErrorType(error),
+						userId: owner.id,
+					}),
+				);
+				throw new ActionError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'Expired uploads could not be cleaned up. Please try again.',
+				});
+			}
+		},
+	}),
 	complete: defineAction({
 		input: completeUploadInputSchema,
 		handler: async ({ assetId }, { locals }) => {
@@ -195,6 +254,26 @@ export const uploadActions = {
 			const kind = mediaKindForMimeType(input.mimeType);
 
 			const uploader = authorizeUpload(locals, kind);
+			try {
+				const cleanup = await cleanupExpiredUploads(locals.database, env.MEDIA_BUCKET, {
+					limit: OPPORTUNISTIC_UPLOAD_CLEANUP_LIMIT,
+				});
+				if (cleanup.deleted > 0) {
+					console.info(
+						JSON.stringify({
+							deletedCount: cleanup.deleted,
+							event: 'upload.cleanup_opportunistic',
+						}),
+					);
+				}
+			} catch (error) {
+				console.error(
+					JSON.stringify({
+						event: 'upload.cleanup_opportunistic_failed',
+						errorType: safeErrorType(error),
+					}),
+				);
+			}
 			const assetId = crypto.randomUUID();
 			const objectKey = `uploads/${assetId}`;
 			const now = new Date();

@@ -100,6 +100,9 @@ export type RequestUploadInput = z.infer<typeof requestUploadInputSchema>;
 
 export const mediaAssetIdSchema = z.uuid();
 export const completeUploadInputSchema = z.object({ assetId: mediaAssetIdSchema });
+export const cleanupExpiredUploadsInputSchema = z.object({
+	confirmation: z.literal('cleanup'),
+});
 
 function bytesMatch(bytes: Uint8Array, offset: number, expected: readonly number[]) {
 	return expected.every((value, index) => bytes[offset + index] === value);
