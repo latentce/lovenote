@@ -94,8 +94,8 @@ export async function createOwner(database: Database, input: CreateOwnerInput) {
 			from claimed
 			returning id
 		), created_account as (
-			insert into account (id, account_id, provider_id, user_id, password)
-			select ${accountId}, id, 'credential', id, ${passwordHash}
+			insert into account (id, account_id, provider_id, user_id, password, updated_at)
+			select ${accountId}, id, 'credential', id, ${passwordHash}, now()
 			from created_user
 			returning user_id
 		)
