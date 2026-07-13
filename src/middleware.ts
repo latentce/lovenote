@@ -4,6 +4,11 @@ import { defineMiddleware } from 'astro:middleware';
 import { memberPermissions } from './db/schema';
 import { isActiveMember } from './lib/authorization';
 import { createRequestRuntime } from './lib/runtime';
+import { applySecurityHeaders } from './lib/security-headers';
+
+function safeErrorType(error: unknown) {
+	return error instanceof Error ? error.name : typeof error;
+}
 
 export const onRequest = defineMiddleware(async (context, next) => {
 	const { auth, database } = createRequestRuntime(context.locals.cfContext);
@@ -30,5 +35,17 @@ export const onRequest = defineMiddleware(async (context, next) => {
 		}
 	}
 
-	return next();
+	try {
+		return applySecurityHeaders(await next());
+	} catch (error) {
+		console.error(
+			JSON.stringify({
+				event: 'request.unexpected_error',
+				errorType: safeErrorType(error),
+				method: context.request.method,
+				path: context.url.pathname,
+			}),
+		);
+		throw error;
+	}
 });
