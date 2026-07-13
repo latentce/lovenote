@@ -5,6 +5,7 @@ import { postDeletionActions } from './post-deletion';
 import { postLifecycleActions } from './post-lifecycle';
 import { postActions } from './posts';
 import { setup } from './setup';
+import { tagActions } from './tags';
 import { uploadActions } from './uploads';
 import { userActions } from './users';
 
@@ -16,6 +17,7 @@ export const server = {
 	postLifecycle: postLifecycleActions,
 	posts: postActions,
 	setup,
+	tags: tagActions,
 	uploads: uploadActions,
 	users: userActions,
 };
