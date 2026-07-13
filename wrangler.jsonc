@@ -19,6 +19,15 @@
     "R2_ACCOUNT_ID": "replace-with-cloudflare-account-id",
     "R2_BUCKET_NAME": "lovenote-media"
   },
+  "secrets": {
+    "required": [
+      "DATABASE_URL",
+      "BETTER_AUTH_SECRET",
+      "SETUP_SECRET",
+      "R2_ACCESS_KEY_ID",
+      "R2_SECRET_ACCESS_KEY"
+    ]
+  },
   "observability": {
     "enabled": true,
     "logs": {
