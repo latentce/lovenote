@@ -1,0 +1,22 @@
+---
+import { tokenizePostBody } from '../lib/post';
+
+interface Props {
+	body: string;
+}
+
+const { body } = Astro.props;
+const tokens = tokenizePostBody(body);
+---
+
+<p class="whitespace-pre-wrap break-words">{
+	tokens.map((token) =>
+		token.kind === 'link' ? (
+			<a class="underline" href={token.href} rel="nofollow ugc">
+				{token.text}
+			</a>
+		) : (
+			token.text
+		),
+	)
+}</p>
