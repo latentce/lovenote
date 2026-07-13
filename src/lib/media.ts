@@ -19,6 +19,9 @@ const mediaTypes = {
 
 export type SupportedMediaType = keyof typeof mediaTypes;
 export type MediaKind = (typeof mediaTypes)[SupportedMediaType]['kind'];
+export const SUPPORTED_MEDIA_TYPES = Object.freeze(
+	Object.keys(mediaTypes) as SupportedMediaType[],
+);
 
 export function isSupportedMediaType(mimeType: string): mimeType is SupportedMediaType {
 	return mimeType in mediaTypes;
