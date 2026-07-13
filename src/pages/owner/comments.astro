@@ -4,7 +4,7 @@ import { actions, isInputError } from 'astro:actions';
 import PostBody from '../../components/PostBody.astro';
 import { listModeratableComments } from '../../db/comment-moderation-queries';
 import BaseLayout from '../../layouts/BaseLayout.astro';
-import { hasCapability } from '../../lib/authorization';
+import { hasCapability, isOwner } from '../../lib/authorization';
 
 Astro.cache.set(false);
 Astro.response.headers.set('Cache-Control', 'private, no-store');
@@ -49,6 +49,7 @@ const formatDateTime = (date: Date) => new Intl.DateTimeFormat('en-US', {
 			<a href="/" class="font-semibold tracking-tight text-stone-950">LoveNote</a>
 			<nav class="flex items-center gap-4 text-sm" aria-label="Member navigation">
 				<a href="/manage" class="text-stone-600 hover:text-stone-950">Author tools</a>
+				{Astro.locals.user && isOwner(Astro.locals.user) && <a href="/owner/posts" class="text-stone-600 hover:text-stone-950">Posts</a>}
 				<a href="/account" class="text-stone-600 hover:text-stone-950">Account</a>
 			</nav>
 		</div>

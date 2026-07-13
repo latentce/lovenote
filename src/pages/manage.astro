@@ -83,6 +83,7 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 			<nav class="flex items-center gap-4 text-sm" aria-label="Member navigation">
 				<a href="/private" class="text-stone-600 hover:text-stone-950">Private feed</a>
 				{canModerateComments && <a href="/owner/comments" class="text-stone-600 hover:text-stone-950">Moderate comments</a>}
+				{owner && <a href="/owner/posts" class="text-stone-600 hover:text-stone-950">All posts</a>}
 				{owner && <a href="/owner/users" class="text-stone-600 hover:text-stone-950">Members</a>}
 				<a href="/account" class="text-stone-600 hover:text-stone-950">Account</a>
 			</nav>
