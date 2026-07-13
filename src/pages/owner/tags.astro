@@ -1,0 +1,167 @@
+---
+import { actions, isInputError } from 'astro:actions';
+
+import { listManageableTags } from '../../db/tag-admin';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { hasCapability, isOwner } from '../../lib/authorization';
+import {
+	MAX_TAG_DESCRIPTION_LENGTH,
+	MAX_TAG_NAME_LENGTH,
+	MAX_TAG_SLUG_LENGTH,
+} from '../../lib/tag';
+
+Astro.cache.set(false);
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+Astro.response.headers.set('Pragma', 'no-cache');
+
+if (!Astro.locals.user) {
+	return Astro.redirect('/login');
+}
+
+const canManageTags = hasCapability(Astro.locals, 'manageTags');
+if (!canManageTags) Astro.response.status = 403;
+
+const createResult = Astro.getActionResult(actions.tags.create);
+const updateResult = Astro.getActionResult(actions.tags.update);
+const mergeResult = Astro.getActionResult(actions.tags.merge);
+const purgeResult = Astro.getActionResult(actions.tags.retryPurge);
+const result = createResult ?? updateResult ?? mergeResult ?? purgeResult;
+const tags = canManageTags ? await listManageableTags(Astro.locals.database) : [];
+const data = result?.data;
+let success: string | null = null;
+if (data?.cachePurged) {
+	switch (data.operation) {
+		case 'created':
+			success = `Tag #${data.slug} was created.`;
+			break;
+		case 'updated':
+			success = `Tag #${data.slug} was updated.`;
+			break;
+		case 'merged':
+			success = `Tag #${data.sourceSlug} was merged into #${data.targetSlug}.`;
+			break;
+		case 'purged':
+			success = 'Cached tag pages were cleared.';
+			break;
+	}
+}
+const cacheWarning = data?.cachePurged === false ? data : null;
+const retryTagId = cacheWarning
+	? 'targetTagId' in cacheWarning ? cacheWarning.targetTagId : cacheWarning.tagId
+	: null;
+const staleTagId = cacheWarning
+	? 'sourceTagId' in cacheWarning
+		? cacheWarning.sourceTagId
+		: 'staleTagId' in cacheWarning ? cacheWarning.staleTagId : null
+	: null;
+const error = result?.error
+	? isInputError(result.error)
+		? 'Check the tag fields and confirm merges before continuing.'
+		: result.error.message
+	: null;
+const owner = isOwner(Astro.locals.user);
+---
+
+<BaseLayout title="Manage tags · LoveNote">
+	<header class="border-b border-stone-200 bg-white">
+		<div class="mx-auto flex w-full max-w-4xl items-center justify-between px-5 py-4 sm:px-8">
+			<a href="/" class="font-semibold tracking-tight text-stone-950">LoveNote</a>
+			<nav class="flex items-center gap-4 text-sm" aria-label="Tag management navigation">
+				<a href="/manage" class="text-stone-600 hover:text-stone-950">Author tools</a>
+				{owner && <a href="/owner/posts" class="text-stone-600 hover:text-stone-950">Posts</a>}
+				{owner && <a href="/owner/users" class="text-stone-600 hover:text-stone-950">Members</a>}
+				<a href="/account" class="text-stone-600 hover:text-stone-950">Account</a>
+			</nav>
+		</div>
+	</header>
+
+	<main class="mx-auto w-full max-w-4xl px-5 py-10 sm:px-8">
+		<p class="text-sm font-semibold tracking-[0.16em] text-rosewood uppercase">Metadata tools</p>
+		<h1 class="mt-2 text-3xl font-semibold tracking-tight text-stone-950">Tags</h1>
+
+		{!canManageTags ? (
+			<p class="mt-7 rounded-2xl border border-red-200 bg-red-50 p-5 text-red-900" role="alert">You do not have permission to manage tags.</p>
+		) : (
+			<>
+				<p class="mt-3 text-stone-600">Create tag metadata, update public labels, and merge duplicate tags without losing post associations.</p>
+
+				{success && <p class="mt-7 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900" role="status">{success}</p>}
+				{error && <p class="mt-7 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900" role="alert">{error}</p>}
+				{cacheWarning && retryTagId && (
+					<div class="mt-7 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950" role="alert">
+						<p>The tag change was saved, but cached public pages could not be cleared.</p>
+						<form method="POST" action={actions.tags.retryPurge} class="mt-3">
+							<input type="hidden" name="tagId" value={retryTagId} />
+							{staleTagId && <input type="hidden" name="staleTagId" value={staleTagId} />}
+							<button type="submit" class="rounded-xl border border-amber-400 bg-white px-4 py-2 text-sm font-semibold hover:bg-amber-100">Retry cache purge</button>
+						</form>
+					</div>
+				)}
+
+				<section class="mt-10 rounded-3xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8" aria-labelledby="create-tag-heading">
+					<h2 id="create-tag-heading" class="text-2xl font-semibold tracking-tight text-stone-950">Create tag</h2>
+					<form method="POST" action={actions.tags.create} class="mt-6 grid gap-5">
+						<label>
+							<span class="text-sm font-medium text-stone-800">Display name</span>
+							<input name="displayName" required maxlength={MAX_TAG_NAME_LENGTH} class="mt-2 w-full rounded-xl border border-stone-300 px-4 py-3" />
+						</label>
+						<label>
+							<span class="text-sm font-medium text-stone-800">URL slug</span>
+							<input name="slug" required maxlength={MAX_TAG_SLUG_LENGTH} pattern="[A-Za-z0-9#][A-Za-z0-9 _#-]*" class="mt-2 w-full rounded-xl border border-stone-300 px-4 py-3" />
+							<span class="mt-1 block text-sm text-stone-500">Saved as lowercase words separated by hyphens.</span>
+						</label>
+						<label>
+							<span class="text-sm font-medium text-stone-800">Description</span>
+							<textarea name="description" maxlength={MAX_TAG_DESCRIPTION_LENGTH} rows="3" class="mt-2 w-full rounded-xl border border-stone-300 px-4 py-3"></textarea>
+						</label>
+						<button type="submit" class="w-fit rounded-xl bg-stone-900 px-5 py-3 font-semibold text-white hover:bg-stone-700">Create tag</button>
+					</form>
+				</section>
+
+				<section class="mt-12" aria-labelledby="existing-tags-heading">
+					<h2 id="existing-tags-heading" class="text-2xl font-semibold tracking-tight text-stone-950">Existing tags</h2>
+					{tags.length === 0 ? (
+						<p class="mt-6 rounded-3xl border border-dashed border-stone-300 bg-white p-8 text-center text-stone-600">No tags have been created.</p>
+					) : (
+						<ol class="mt-6 space-y-4">
+							{tags.map((tag) => (
+								<li class="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+									<div class="flex flex-wrap items-start justify-between gap-4">
+										<div>
+											<p class="font-semibold text-stone-950">#{tag.displayName}</p>
+											<p class="mt-1 text-sm text-stone-500">/{tag.slug} · {tag.postCount} {tag.postCount === 1 ? 'post' : 'posts'}</p>
+										</div>
+										<a href={`/tags/${encodeURIComponent(tag.slug)}`} class="text-sm font-medium text-rosewood hover:text-rose-800">Public archive</a>
+									</div>
+									<details class="mt-5 rounded-2xl border border-stone-200 bg-stone-50 p-4">
+										<summary class="cursor-pointer text-sm font-semibold text-stone-900">Edit metadata</summary>
+										<form method="POST" action={actions.tags.update} class="mt-4 grid gap-4">
+											<input type="hidden" name="tagId" value={tag.id} />
+											<label><span class="text-sm font-medium">Display name</span><input name="displayName" value={tag.displayName} required maxlength={MAX_TAG_NAME_LENGTH} class="mt-2 w-full rounded-xl border border-stone-300 bg-white px-3 py-2" /></label>
+											<label><span class="text-sm font-medium">URL slug</span><input name="slug" value={tag.slug} required maxlength={MAX_TAG_SLUG_LENGTH} class="mt-2 w-full rounded-xl border border-stone-300 bg-white px-3 py-2" /></label>
+											<label><span class="text-sm font-medium">Description</span><textarea name="description" maxlength={MAX_TAG_DESCRIPTION_LENGTH} rows="3" class="mt-2 w-full rounded-xl border border-stone-300 bg-white px-3 py-2">{tag.description}</textarea></label>
+											<button type="submit" class="w-fit rounded-xl bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-700">Save metadata</button>
+										</form>
+									</details>
+								</li>
+							))}
+						</ol>
+					)}
+				</section>
+
+				{tags.length >= 2 && (
+					<section class="mt-12 rounded-3xl border border-red-200 bg-red-50 p-6 sm:p-8" aria-labelledby="merge-tags-heading">
+						<h2 id="merge-tags-heading" class="text-2xl font-semibold tracking-tight text-red-950">Merge duplicate tags</h2>
+						<p class="mt-3 text-sm leading-6 text-red-900">All source associations move to the target tag, then the source metadata is permanently deleted.</p>
+						<form method="POST" action={actions.tags.merge} class="mt-6 grid gap-5 sm:grid-cols-2">
+							<label><span class="text-sm font-medium text-red-950">Source tag</span><select name="sourceTagId" required class="mt-2 w-full rounded-xl border border-red-300 bg-white px-3 py-2">{tags.map((tag) => <option value={tag.id}>#{tag.displayName}</option>)}</select></label>
+							<label><span class="text-sm font-medium text-red-950">Target tag</span><select name="targetTagId" required class="mt-2 w-full rounded-xl border border-red-300 bg-white px-3 py-2">{tags.map((tag, index) => <option value={tag.id} selected={index === 1}>#{tag.displayName}</option>)}</select></label>
+							<label class="flex items-start gap-2 sm:col-span-2"><input type="checkbox" name="confirmation" value="merge" required class="mt-1" /><span class="text-sm text-red-950">Confirm the permanent source-tag deletion.</span></label>
+							<button type="submit" class="w-fit rounded-xl bg-red-700 px-4 py-2 font-semibold text-white hover:bg-red-800">Merge tags</button>
+						</form>
+					</section>
+				)}
+			</>
+		)}
+	</main>
+</BaseLayout>

@@ -215,7 +215,12 @@ export const tagActions = {
 							tagId: context.tagId,
 						}),
 					);
-					return { cachePurged: false, operation: 'purged' as const, tagId: context.tagId };
+					return {
+						cachePurged: false,
+						operation: 'purged' as const,
+						staleTagId: input.staleTagId,
+						tagId: context.tagId,
+					};
 				}
 			}
 
@@ -226,7 +231,12 @@ export const tagActions = {
 					userId: manager.id,
 				}),
 			);
-			return { cachePurged: true, operation: 'purged' as const, tagId: context.tagId };
+			return {
+				cachePurged: true,
+				operation: 'purged' as const,
+				staleTagId: input.staleTagId,
+				tagId: context.tagId,
+			};
 		},
 	}),
 };
