@@ -4,11 +4,12 @@ import MediaGallery from './MediaGallery.astro';
 import PostBody from './PostBody.astro';
 
 interface Props {
+	detailHref?: string;
 	eagerFirstMedia?: boolean;
 	post: PublicPostSummary;
 }
 
-const { eagerFirstMedia = false, post } = Astro.props;
+const { detailHref, eagerFirstMedia = false, post } = Astro.props;
 const publishedDate = new Intl.DateTimeFormat('en-US', {
 	dateStyle: 'medium',
 	timeZone: 'UTC',
@@ -31,5 +32,13 @@ const publishedDate = new Intl.DateTimeFormat('en-US', {
 		<div class="px-5 py-5 leading-7 text-stone-800 sm:px-7 sm:py-6">
 			<PostBody body={post.body} />
 		</div>
+	)}
+
+	{detailHref && (
+		<footer class="border-t border-stone-100 px-5 py-4 sm:px-7">
+			<a href={detailHref} class="text-sm font-semibold text-rosewood hover:text-rose-800">
+				View post and comments
+			</a>
+		</footer>
 	)}
 </article>

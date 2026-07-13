@@ -1,11 +1,10 @@
-import { and, asc, desc, eq, lt, ne, or, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 
 import type { AuthenticatedUser } from '../lib/auth';
 import { isActiveMember, isOwner } from '../lib/authorization';
 import { decodePostCursor, encodePostCursor, type PostCursor } from '../lib/post';
-import { user } from './auth-schema';
 import type { Database } from './client';
-import { mediaAssets, posts } from './schema';
+import { comments, favorites, mediaAssets, posts } from './schema';
 
 export const PUBLIC_POST_PAGE_SIZE = 20;
 
@@ -85,17 +84,6 @@ export function buildPublicPostsQuery(
 	});
 }
 
-const postSummarySelection = {
-	id: posts.id,
-	authorId: posts.authorId,
-	authorUsername: user.displayUsername,
-	body: posts.body,
-	visibility: posts.visibility,
-	status: posts.status,
-	createdAt: posts.createdAt,
-	updatedAt: posts.updatedAt,
-};
-
 export async function listPublicPosts(
 	database: Database,
 	cursorValue?: string | null,
@@ -126,17 +114,113 @@ export async function listPublicPosts(
 export type PublicPostSummary = Awaited<ReturnType<typeof listPublicPosts>>['items'][number];
 export type PostMediaSummary = PublicPostSummary['media'][number];
 
-export async function findVisiblePost(
+export function buildPostDetailQuery(
+	database: Pick<Database, 'query'>,
+	postId: number,
+	viewer: AuthenticatedUser | null,
+) {
+	return database.query.posts.findFirst({
+		columns: {
+			authorId: true,
+			body: true,
+			createdAt: true,
+			id: true,
+			status: true,
+			updatedAt: true,
+			visibility: true,
+		},
+		extras: {
+			favoriteCount: sql<number>`(
+				select count(*)::integer
+				from ${favorites}
+				where ${favorites.postId} = ${posts.id}
+			)`.as('favorite_count'),
+		},
+		where: and(eq(posts.id, postId), visiblePostFilter(viewer)),
+		with: {
+			author: {
+				columns: {
+					displayUsername: true,
+					name: true,
+				},
+			},
+			comments: {
+				columns: {
+					authorId: true,
+					body: true,
+					createdAt: true,
+					id: true,
+					updatedAt: true,
+				},
+				orderBy: [asc(comments.createdAt), asc(comments.id)],
+				where: eq(comments.status, 'visible'),
+				with: {
+					author: {
+						columns: {
+							displayUsername: true,
+							name: true,
+						},
+					},
+				},
+			},
+			media: {
+				columns: {
+					altText: true,
+					attachmentOrder: true,
+					byteSize: true,
+					deliveryRevision: true,
+					durationMs: true,
+					height: true,
+					id: true,
+					kind: true,
+					mimeType: true,
+					originalFilename: true,
+					width: true,
+				},
+				orderBy: [asc(mediaAssets.attachmentOrder)],
+				where: eq(mediaAssets.uploadState, 'ready'),
+			},
+			tags: {
+				columns: {
+					tagId: true,
+				},
+				with: {
+					tag: {
+						columns: {
+							description: true,
+							displayName: true,
+							id: true,
+							slug: true,
+						},
+					},
+				},
+			},
+		},
+	});
+}
+
+export async function findPostDetail(
 	database: Database,
 	postId: number,
 	viewer: AuthenticatedUser | null,
 ) {
-	const rows = await database
-		.select(postSummarySelection)
-		.from(posts)
-		.innerJoin(user, eq(posts.authorId, user.id))
-		.where(and(eq(posts.id, postId), visiblePostFilter(viewer)))
-		.limit(1);
+	const post = await buildPostDetailQuery(database, postId, viewer);
 
-	return rows[0] ?? null;
+	if (!post) {
+		return null;
+	}
+
+	return {
+		...post,
+		authorUsername: post.author.displayUsername ?? post.author.name,
+		comments: post.comments.map(({ author, ...comment }) => ({
+			...comment,
+			authorUsername: author.displayUsername ?? author.name,
+		})),
+		tags: post.tags
+			.map(({ tag }) => tag)
+			.sort((first, second) => first.slug.localeCompare(second.slug)),
+	};
 }
+
+export type PostDetail = NonNullable<Awaited<ReturnType<typeof findPostDetail>>>;

@@ -36,7 +36,7 @@ const nextPageUrl = page.nextCursor ? `/?cursor=${encodeURIComponent(page.nextCu
 			) : (
 				<div class="mt-10 space-y-8">
 					{page.items.map((post, index) => (
-						<PostCard post={post} eagerFirstMedia={index === 0} />
+						<PostCard post={post} detailHref={`/posts/${post.id}`} eagerFirstMedia={index === 0} />
 					))}
 				</div>
 			)}
