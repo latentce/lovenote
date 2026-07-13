@@ -76,6 +76,9 @@ describe('post detail query', () => {
 		const query = buildPostDetailQuery(database, 42, null).toSQL();
 
 		expect(query.sql).toContain('count(*)::integer');
+		expect(query.sql).toContain('from "favorites"');
+		expect(query.sql).toContain('"favorites"."post_id" = "posts"."id"');
+		expect(query.sql).not.toContain('"posts"."post_id"');
 		expect(query.sql).toContain('"posts_comments"."status"');
 		expect(query.sql).toContain('"posts_media"."upload_state"');
 		expect(query.sql).not.toContain('object_key');

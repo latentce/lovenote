@@ -4,7 +4,7 @@ import type { AuthenticatedUser } from '../lib/auth';
 import { isActiveMember, isOwner } from '../lib/authorization';
 import { decodePostCursor, encodePostCursor, type PostCursor } from '../lib/post';
 import type { Database } from './client';
-import { comments, favorites, mediaAssets, posts } from './schema';
+import { comments, mediaAssets, posts } from './schema';
 
 export const PUBLIC_POST_PAGE_SIZE = 20;
 export const AUTHOR_POST_LIMIT = 50;
@@ -285,8 +285,8 @@ export function buildPostDetailQuery(
 		extras: {
 			favoriteCount: sql<number>`(
 				select count(*)::integer
-				from ${favorites}
-				where ${favorites.postId} = ${posts.id}
+				from "favorites"
+				where "favorites"."post_id" = ${posts.id}
 			)`.as('favorite_count'),
 		},
 		where: and(eq(posts.id, postId), visiblePostFilter(viewer)),
