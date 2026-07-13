@@ -29,6 +29,7 @@ const canCreatePosts = hasCapability(Astro.locals, 'createPosts');
 const canDeleteOwnPosts = hasCapability(Astro.locals, 'deleteOwnPosts');
 const canEditOwnPosts = hasCapability(Astro.locals, 'editOwnPosts');
 const canHideOwnPosts = hasCapability(Astro.locals, 'hideOwnPosts');
+const canModerateComments = hasCapability(Astro.locals, 'moderateComments');
 const canUploadImages = hasCapability(Astro.locals, 'uploadImages');
 const canUploadVideos = hasCapability(Astro.locals, 'uploadVideos');
 const allowedMediaTypes = SUPPORTED_MEDIA_TYPES.filter((mimeType) =>
@@ -80,6 +81,7 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 			<a href="/" class="font-semibold tracking-tight text-stone-950">LoveNote</a>
 			<nav class="flex items-center gap-4 text-sm" aria-label="Member navigation">
 				<a href="/private" class="text-stone-600 hover:text-stone-950">Private feed</a>
+				{canModerateComments && <a href="/owner/comments" class="text-stone-600 hover:text-stone-950">Moderate comments</a>}
 				<a href="/account" class="text-stone-600 hover:text-stone-950">Account</a>
 			</nav>
 		</div>

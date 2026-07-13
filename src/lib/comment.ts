@@ -16,4 +16,17 @@ export const createCommentInputSchema = z.object({
 	postId: z.coerce.number().int().positive(),
 });
 
+export const moderateCommentInputSchema = z.object({
+	commentId: z.coerce.number().int().positive(),
+});
+
+export const deleteCommentInputSchema = moderateCommentInputSchema.extend({
+	confirmation: z.literal('delete'),
+});
+
+export const retryCommentPurgeInputSchema = z.object({
+	postId: z.coerce.number().int().positive(),
+});
+
 export type CreateCommentInput = z.infer<typeof createCommentInputSchema>;
+export type ModerateCommentInput = z.infer<typeof moderateCommentInputSchema>;
