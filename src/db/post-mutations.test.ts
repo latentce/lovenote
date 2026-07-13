@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
 import type { Database } from './client';
-import { createPost, setOwnPostStatus, type PostLifecycleResult } from './post-mutations';
+import {
+	createPost,
+	setOwnPostStatus,
+	setPostStatus,
+	type PostLifecycleResult,
+} from './post-mutations';
 
 function databaseReturning(rows: { id: number }[]) {
 	const execute = vi.fn().mockResolvedValue({ rows });
@@ -106,6 +111,27 @@ describe('post lifecycle mutations', () => {
 		const compiled = new PgDialect().sqlToQuery(query!);
 		expect(compiled.params).toContain('active');
 		expect(compiled.params).toContain('hidden');
+	});
+
+	it('lets an owner change any post status without weakening the member predicate', async () => {
+		const expected: PostLifecycleResult = {
+			changed: true,
+			id: 42,
+			media: [],
+			tagIds: [],
+			visibility: 'private',
+		};
+		const { database, execute } = lifecycleDatabase([expected]);
+
+		await expect(setPostStatus(database, 'owner-id', 42, 'hidden', true)).resolves.toEqual(
+			expected,
+		);
+
+		const query = execute.mock.calls[0]?.[0];
+		const compiled = new PgDialect().sqlToQuery(query!);
+		expect(compiled.sql).toContain('and true');
+		expect(compiled.sql).not.toContain('posts.author_id =');
+		expect(compiled.params).not.toContain('owner-id');
 	});
 
 	it('is retryable for an already hidden post and rejects unavailable targets', async () => {

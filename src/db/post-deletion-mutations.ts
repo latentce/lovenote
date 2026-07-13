@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 
 import type { PostStatus } from '../lib/post';
 import type { Database } from './client';
+import { manageablePostAuthorFilter } from './mutation-filters';
 
 export type StagedPostDeletion = {
 	changed: boolean;
@@ -16,17 +17,18 @@ export type StagedPostDeletion = {
 	visibility: 'public' | 'private';
 };
 
-export async function stageOwnPostDeletion(
+export async function stagePostDeletion(
 	database: Database,
-	authorId: string,
+	actorId: string,
 	postId: number,
+	owner: boolean,
 ): Promise<StagedPostDeletion | null> {
 	const result = await database.execute<StagedPostDeletion>(sql`
 		with target_post as materialized (
 			select posts.id, posts.status, posts.visibility
 			from posts
 			where posts.id = ${postId}
-				and posts.author_id = ${authorId}
+				and ${manageablePostAuthorFilter(actorId, owner)}
 				and posts.status in ('active', 'hidden', 'deleting')
 			for update of posts
 		), changed_post as (
@@ -95,18 +97,27 @@ export async function stageOwnPostDeletion(
 	return result.rows[0] ?? null;
 }
 
-export async function finalizeOwnPostDeletion(
+export function stageOwnPostDeletion(database: Database, authorId: string, postId: number) {
+	return stagePostDeletion(database, authorId, postId, false);
+}
+
+export async function finalizePostDeletion(
 	database: Database,
-	authorId: string,
+	actorId: string,
 	postId: number,
+	owner: boolean,
 ) {
 	const result = await database.execute<{ id: number }>(sql`
 		delete from posts
 		where posts.id = ${postId}
-			and posts.author_id = ${authorId}
+			and ${manageablePostAuthorFilter(actorId, owner)}
 			and posts.status = 'deleting'
 		returning posts.id
 	`);
 
 	return result.rows[0]?.id ?? null;
+}
+
+export function finalizeOwnPostDeletion(database: Database, authorId: string, postId: number) {
+	return finalizePostDeletion(database, authorId, postId, false);
 }

@@ -1,7 +1,7 @@
 import { ActionError, defineAction } from 'astro:actions';
 
-import { setOwnPostStatus } from '../db/post-mutations';
-import { AuthorizationError, requireCapability } from '../lib/authorization';
+import { setPostStatus } from '../db/post-mutations';
+import { AuthorizationError, isOwner, requireCapability } from '../lib/authorization';
 import { postLifecycleCacheTags } from '../lib/cache-invalidation';
 import {
 	postLifecycleInputSchema,
@@ -45,12 +45,19 @@ async function changePostStatus(
 	nextStatus: Extract<PostStatus, 'active' | 'hidden'>,
 ) {
 	const author = authorizePostLifecycle(locals);
-	const post = await setOwnPostStatus(locals.database, author.id, input.postId, nextStatus);
+	const owner = isOwner(author);
+	const post = await setPostStatus(
+		locals.database,
+		author.id,
+		input.postId,
+		nextStatus,
+		owner,
+	);
 
 	if (!post) {
 		throw new ActionError({
 			code: 'NOT_FOUND',
-			message: 'This post is unavailable or does not belong to you.',
+			message: 'This post is unavailable or you cannot manage it.',
 		});
 	}
 
@@ -76,6 +83,7 @@ async function changePostStatus(
 			cachePurged,
 			event: `post.${nextStatus}`,
 			postId: post.id,
+			ownerModeration: owner,
 			userId: author.id,
 		}),
 	);

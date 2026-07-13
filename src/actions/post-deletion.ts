@@ -2,10 +2,10 @@ import { env } from 'cloudflare:workers';
 import { ActionError, defineAction } from 'astro:actions';
 
 import {
-	finalizeOwnPostDeletion,
-	stageOwnPostDeletion,
+	finalizePostDeletion,
+	stagePostDeletion,
 } from '../db/post-deletion-mutations';
-import { AuthorizationError, requireCapability } from '../lib/authorization';
+import { AuthorizationError, isOwner, requireCapability } from '../lib/authorization';
 import { postDeletionCacheTags } from '../lib/cache-invalidation';
 import { deletePostInputSchema } from '../lib/post';
 import { deleteR2Objects } from '../lib/r2-cleanup';
@@ -56,12 +56,18 @@ export const postDeletionActions = {
 		input: deletePostInputSchema,
 		handler: async (input, { cache, locals }) => {
 			const author = authorizePostDeletion(locals);
-			const post = await stageOwnPostDeletion(locals.database, author.id, input.postId);
+			const owner = isOwner(author);
+			const post = await stagePostDeletion(
+				locals.database,
+				author.id,
+				input.postId,
+				owner,
+			);
 
 			if (!post) {
 				throw new ActionError({
 					code: 'NOT_FOUND',
-					message: 'This post is unavailable or does not belong to you.',
+					message: 'This post is unavailable or you cannot manage it.',
 				});
 			}
 
@@ -81,7 +87,12 @@ export const postDeletionActions = {
 
 			let finalizedPostId: number | null;
 			try {
-				finalizedPostId = await finalizeOwnPostDeletion(locals.database, author.id, post.id);
+				finalizedPostId = await finalizePostDeletion(
+					locals.database,
+					author.id,
+					post.id,
+					owner,
+				);
 			} catch (error) {
 				return cleanupFailure('database', post.id, author.id, error);
 			}
@@ -90,6 +101,7 @@ export const postDeletionActions = {
 				JSON.stringify({
 					alreadyFinalized: finalizedPostId === null,
 					event: 'post.deleted',
+					ownerModeration: owner,
 					postId: post.id,
 					userId: author.id,
 				}),

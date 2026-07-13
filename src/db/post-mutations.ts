@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 
 import type { CreatePostInput, PostStatus } from '../lib/post';
 import type { Database } from './client';
+import { manageablePostAuthorFilter } from './mutation-filters';
 
 export type PostLifecycleResult = {
 	changed: boolean;
@@ -76,11 +77,12 @@ export async function createPost(database: Database, authorId: string, input: Cr
 	return result.rows[0]?.id ?? null;
 }
 
-export async function setOwnPostStatus(
+export async function setPostStatus(
 	database: Database,
-	authorId: string,
+	actorId: string,
 	postId: number,
 	nextStatus: Extract<PostStatus, 'active' | 'hidden'>,
+	owner: boolean,
 ): Promise<PostLifecycleResult | null> {
 	const previousStatus = nextStatus === 'hidden' ? 'active' : 'hidden';
 	const result = await database.execute<PostLifecycleResult>(sql`
@@ -88,7 +90,7 @@ export async function setOwnPostStatus(
 			select posts.id, posts.status, posts.visibility
 			from posts
 			where posts.id = ${postId}
-				and posts.author_id = ${authorId}
+				and ${manageablePostAuthorFilter(actorId, owner)}
 				and posts.status in (${previousStatus}, ${nextStatus})
 			for update of posts
 		), changed_post as (
@@ -148,4 +150,13 @@ export async function setOwnPostStatus(
 	`);
 
 	return result.rows[0] ?? null;
+}
+
+export function setOwnPostStatus(
+	database: Database,
+	authorId: string,
+	postId: number,
+	nextStatus: Extract<PostStatus, 'active' | 'hidden'>,
+) {
+	return setPostStatus(database, authorId, postId, nextStatus, false);
 }
