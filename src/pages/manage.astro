@@ -3,7 +3,7 @@ import { actions, isInputError } from 'astro:actions';
 
 import { listOwnPosts } from '../db/post-queries';
 import BaseLayout from '../layouts/BaseLayout.astro';
-import { hasCapability } from '../lib/authorization';
+import { hasCapability, isOwner } from '../lib/authorization';
 import {
 	IMAGE_UPLOAD_LIMIT,
 	SUPPORTED_MEDIA_TYPES,
@@ -30,6 +30,7 @@ const canDeleteOwnPosts = hasCapability(Astro.locals, 'deleteOwnPosts');
 const canEditOwnPosts = hasCapability(Astro.locals, 'editOwnPosts');
 const canHideOwnPosts = hasCapability(Astro.locals, 'hideOwnPosts');
 const canModerateComments = hasCapability(Astro.locals, 'moderateComments');
+const owner = isOwner(Astro.locals.user);
 const canUploadImages = hasCapability(Astro.locals, 'uploadImages');
 const canUploadVideos = hasCapability(Astro.locals, 'uploadVideos');
 const allowedMediaTypes = SUPPORTED_MEDIA_TYPES.filter((mimeType) =>
@@ -82,6 +83,7 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 			<nav class="flex items-center gap-4 text-sm" aria-label="Member navigation">
 				<a href="/private" class="text-stone-600 hover:text-stone-950">Private feed</a>
 				{canModerateComments && <a href="/owner/comments" class="text-stone-600 hover:text-stone-950">Moderate comments</a>}
+				{owner && <a href="/owner/users" class="text-stone-600 hover:text-stone-950">Members</a>}
 				<a href="/account" class="text-stone-600 hover:text-stone-950">Account</a>
 			</nav>
 		</div>

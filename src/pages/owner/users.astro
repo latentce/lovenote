@@ -1,0 +1,149 @@
+---
+import { actions, isInputError } from 'astro:actions';
+
+import { listMembers } from '../../db/member-admin';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { isOwner } from '../../lib/authorization';
+import { MAX_MEMBER_ACCOUNTS } from '../../lib/member';
+
+Astro.cache.set(false);
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+Astro.response.headers.set('Pragma', 'no-cache');
+
+if (!Astro.locals.user) {
+	return Astro.redirect('/login');
+}
+
+const owner = isOwner(Astro.locals.user);
+if (!owner) Astro.response.status = 403;
+
+const result = Astro.getActionResult(actions.users.create);
+const inputErrors = isInputError(result?.error) ? result.error.fields : {};
+const members = owner ? await listMembers(Astro.locals.database) : [];
+const canCreateMember = members.length < MAX_MEMBER_ACCOUNTS;
+const permissionOptions = [
+	{ checked: true, key: 'createPosts', label: 'Create posts' },
+	{ checked: true, key: 'editOwnPosts', label: 'Edit own posts' },
+	{ checked: true, key: 'hideOwnPosts', label: 'Hide and restore own posts' },
+	{ checked: true, key: 'deleteOwnPosts', label: 'Permanently delete own posts' },
+	{ checked: true, key: 'uploadImages', label: 'Upload images' },
+	{ checked: true, key: 'uploadVideos', label: 'Upload videos' },
+	{ checked: true, key: 'createComments', label: 'Create comments' },
+	{ checked: true, key: 'favoritePosts', label: 'Favorite posts' },
+	{ checked: false, key: 'manageTags', label: 'Manage tags' },
+	{ checked: false, key: 'moderateComments', label: 'Moderate comments' },
+] as const;
+const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
+	dateStyle: 'medium',
+	timeZone: 'UTC',
+}).format(date);
+---
+
+<BaseLayout title="Manage members · LoveNote">
+	<header class="border-b border-stone-200 bg-white">
+		<div class="mx-auto flex w-full max-w-4xl items-center justify-between px-5 py-4 sm:px-8">
+			<a href="/" class="font-semibold tracking-tight text-stone-950">LoveNote</a>
+			<nav class="flex items-center gap-4 text-sm" aria-label="Owner navigation">
+				<a href="/manage" class="text-stone-600 hover:text-stone-950">Author tools</a>
+				<a href="/owner/comments" class="text-stone-600 hover:text-stone-950">Comments</a>
+				<a href="/account" class="text-stone-600 hover:text-stone-950">Account</a>
+			</nav>
+		</div>
+	</header>
+
+	<main class="mx-auto w-full max-w-4xl px-5 py-10 sm:px-8">
+		<p class="text-sm font-semibold tracking-[0.16em] text-rosewood uppercase">Owner</p>
+		<h1 class="mt-2 text-3xl font-semibold tracking-tight text-stone-950">Members</h1>
+
+		{!owner ? (
+			<p class="mt-7 rounded-2xl border border-red-200 bg-red-50 p-5 text-red-900" role="alert">Only the owner can manage member accounts.</p>
+		) : (
+			<>
+				<p class="mt-3 text-stone-600">LoveNote supports up to {MAX_MEMBER_ACCOUNTS} accounts, including the owner.</p>
+
+				{result?.data?.created && (
+					<p class="mt-7 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900" role="status">
+						@{result.data.username} was created. Share the temporary password securely; they must change it after signing in.
+					</p>
+				)}
+				{result?.error && !isInputError(result.error) && (
+					<p class="mt-7 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900" role="alert">{result.error.message}</p>
+				)}
+
+				<section class="mt-10 rounded-3xl border border-stone-200 bg-white p-6 shadow-sm sm:p-9" aria-labelledby="create-member-heading">
+					<h2 id="create-member-heading" class="text-2xl font-semibold tracking-tight text-stone-950">Create member</h2>
+					{!canCreateMember ? (
+						<p class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950">The account limit has been reached.</p>
+					) : (
+						<form method="POST" action={actions.users.create} class="mt-6 space-y-6">
+							<label class="block">
+								<span class="text-sm font-medium text-stone-800">Username</span>
+								<input name="username" required minlength="3" maxlength="30" pattern="[A-Za-z0-9_.]+" autocomplete="off" class="mt-2 w-full rounded-xl border border-stone-300 px-4 py-3 outline-none focus:border-rosewood focus:ring-2 focus:ring-rose-100" />
+								{inputErrors.username && <span class="mt-1 block text-sm text-red-700">{inputErrors.username.join(' ')}</span>}
+							</label>
+
+							<div class="grid gap-5 sm:grid-cols-2">
+								<label class="block">
+									<span class="text-sm font-medium text-stone-800">Temporary password</span>
+									<input type="password" name="password" required minlength="12" maxlength="128" autocomplete="new-password" class="mt-2 w-full rounded-xl border border-stone-300 px-4 py-3 outline-none focus:border-rosewood focus:ring-2 focus:ring-rose-100" />
+									{inputErrors.password && <span class="mt-1 block text-sm text-red-700">{inputErrors.password.join(' ')}</span>}
+								</label>
+								<label class="block">
+									<span class="text-sm font-medium text-stone-800">Confirm password</span>
+									<input type="password" name="confirmPassword" required minlength="12" maxlength="128" autocomplete="new-password" class="mt-2 w-full rounded-xl border border-stone-300 px-4 py-3 outline-none focus:border-rosewood focus:ring-2 focus:ring-rose-100" />
+									{inputErrors.confirmPassword && <span class="mt-1 block text-sm text-red-700">{inputErrors.confirmPassword.join(' ')}</span>}
+								</label>
+							</div>
+
+							<fieldset>
+								<legend class="text-sm font-semibold text-stone-900">Initial capabilities</legend>
+								<div class="mt-3 grid gap-3 sm:grid-cols-2">
+									{permissionOptions.map((permission) => (
+										<label class="flex items-start gap-3 rounded-xl border border-stone-200 p-3 text-sm text-stone-800">
+											<input type="checkbox" name={permission.key} checked={permission.checked} class="mt-1" />
+											<span>{permission.label}</span>
+										</label>
+									))}
+								</div>
+							</fieldset>
+
+							<button type="submit" class="rounded-xl bg-rosewood px-5 py-3 font-semibold text-white hover:bg-rose-800 focus:outline-none focus:ring-2 focus:ring-rose-300 focus:ring-offset-2">Create member</button>
+						</form>
+					)}
+				</section>
+
+				<section class="mt-12" aria-labelledby="member-list-heading">
+					<h2 id="member-list-heading" class="text-2xl font-semibold tracking-tight text-stone-950">Current accounts</h2>
+					<ol class="mt-6 space-y-4">
+						{members.map((member) => {
+							const enabledCapabilities = permissionOptions.filter((permission) => member[permission.key] === true);
+							return (
+								<li class="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+									<div class="flex flex-wrap items-start justify-between gap-4">
+										<div>
+											<p class="font-semibold text-stone-950">@{member.displayUsername}</p>
+											<p class="mt-1 text-sm text-stone-500">Joined {formatDate(member.createdAt)} · {member.role?.includes('admin') ? 'owner' : 'member'}</p>
+										</div>
+										<div class="flex flex-wrap gap-2">
+											{member.banned && <span class="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800 uppercase">banned</span>}
+											{member.temporaryPassword && <span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900 uppercase">temporary password</span>}
+										</div>
+									</div>
+									{member.role?.includes('admin') ? (
+										<p class="mt-4 text-sm text-stone-600">The owner always has every capability.</p>
+									) : member.temporaryPassword === null ? (
+										<p class="mt-4 text-sm font-medium text-red-700">This account is missing its capability record.</p>
+									) : (
+										<ul class="mt-4 flex flex-wrap gap-2" aria-label="Enabled capabilities">
+											{enabledCapabilities.map((permission) => <li class="rounded-full bg-stone-100 px-3 py-1 text-xs text-stone-700">{permission.label}</li>)}
+										</ul>
+									)}
+								</li>
+							);
+						})}
+					</ol>
+				</section>
+			</>
+		)}
+	</main>
+</BaseLayout>

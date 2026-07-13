@@ -6,6 +6,7 @@ import { postLifecycleActions } from './post-lifecycle';
 import { postActions } from './posts';
 import { setup } from './setup';
 import { uploadActions } from './uploads';
+import { userActions } from './users';
 
 export const server = {
 	account,
@@ -16,4 +17,5 @@ export const server = {
 	posts: postActions,
 	setup,
 	uploads: uploadActions,
+	users: userActions,
 };

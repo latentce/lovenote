@@ -1,0 +1,95 @@
+import { asc, eq, sql } from 'drizzle-orm';
+
+import type { NewMemberPermissions } from '../lib/member';
+import { MAX_MEMBER_ACCOUNTS } from '../lib/member';
+import { user } from './auth-schema';
+import type { Database } from './client';
+import { memberPermissions } from './schema';
+
+export function buildMemberListQuery(database: Pick<Database, 'select'>) {
+	return database
+		.select({
+			banned: user.banned,
+			createdAt: user.createdAt,
+			displayUsername: sql<string>`coalesce(${user.displayUsername}, ${user.name})`,
+			id: user.id,
+			role: user.role,
+			createComments: memberPermissions.createComments,
+			createPosts: memberPermissions.createPosts,
+			deleteOwnPosts: memberPermissions.deleteOwnPosts,
+			editOwnPosts: memberPermissions.editOwnPosts,
+			favoritePosts: memberPermissions.favoritePosts,
+			hideOwnPosts: memberPermissions.hideOwnPosts,
+			manageTags: memberPermissions.manageTags,
+			moderateComments: memberPermissions.moderateComments,
+			temporaryPassword: memberPermissions.temporaryPassword,
+			uploadImages: memberPermissions.uploadImages,
+			uploadVideos: memberPermissions.uploadVideos,
+		})
+		.from(user)
+		.leftJoin(memberPermissions, eq(memberPermissions.userId, user.id))
+		.orderBy(asc(user.createdAt), asc(user.id));
+}
+
+export async function listMembers(database: Database) {
+	return buildMemberListQuery(database);
+}
+
+export async function countMembers(database: Database) {
+	const result = await database.select({ value: sql<number>`count(*)::integer` }).from(user);
+	return result[0]?.value ?? 0;
+}
+
+export async function addMemberPermissions(
+	database: Database,
+	userId: string,
+	permissions: NewMemberPermissions,
+) {
+	const result = await database.execute<{ userId: string }>(sql`
+		with ranked_user as (
+			select
+				"user".id,
+				row_number() over (order by "user".created_at, "user".id) as account_number
+			from "user"
+		), eligible_user as (
+			select ranked_user.id
+			from ranked_user
+			where ranked_user.id = ${userId}
+				and ranked_user.account_number <= ${MAX_MEMBER_ACCOUNTS}
+		)
+		insert into member_permissions (
+			user_id,
+			create_posts,
+			edit_own_posts,
+			hide_own_posts,
+			delete_own_posts,
+			upload_images,
+			upload_videos,
+			create_comments,
+			favorite_posts,
+			manage_tags,
+			moderate_comments,
+			temporary_password
+		)
+		select
+			eligible_user.id,
+			${permissions.createPosts},
+			${permissions.editOwnPosts},
+			${permissions.hideOwnPosts},
+			${permissions.deleteOwnPosts},
+			${permissions.uploadImages},
+			${permissions.uploadVideos},
+			${permissions.createComments},
+			${permissions.favoritePosts},
+			${permissions.manageTags},
+			${permissions.moderateComments},
+			true
+		from eligible_user
+		on conflict (user_id) do nothing
+		returning user_id as "userId"
+	`);
+
+	return result.rows[0]?.userId ?? null;
+}
+
+export type ManagedMember = Awaited<ReturnType<typeof listMembers>>[number];
