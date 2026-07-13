@@ -5,6 +5,7 @@ export const IMAGE_UPLOAD_LIMIT = 50 * 1024 * 1024;
 export const VIDEO_UPLOAD_LIMIT = 250 * 1024 * 1024;
 export const UPLOAD_URL_LIFETIME_SECONDS = 10 * 60;
 export const UNATTACHED_UPLOAD_LIFETIME_MS = 24 * 60 * 60 * 1000;
+export const MEDIA_SIGNATURE_BYTE_COUNT = 512;
 
 const mediaTypes = {
 	'image/avif': { extensions: ['avif'], kind: 'image', limit: IMAGE_UPLOAD_LIMIT },
@@ -93,6 +94,60 @@ export const requestUploadInputSchema = z
 	});
 
 export type RequestUploadInput = z.infer<typeof requestUploadInputSchema>;
+
+export const completeUploadInputSchema = z.object({ assetId: z.uuid() });
+
+function bytesMatch(bytes: Uint8Array, offset: number, expected: readonly number[]) {
+	return expected.every((value, index) => bytes[offset + index] === value);
+}
+
+function asciiAt(bytes: Uint8Array, offset: number, length: number) {
+	return String.fromCharCode(...bytes.subarray(offset, offset + length));
+}
+
+function isoBaseMediaBrands(bytes: Uint8Array) {
+	if (bytes.length < 12 || asciiAt(bytes, 4, 4) !== 'ftyp') {
+		return [];
+	}
+
+	const declaredSize = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0);
+	const boxEnd = Math.min(declaredSize, bytes.length);
+	const brands: string[] = [];
+
+	for (let offset = 8; offset + 4 <= boxEnd; offset += 4) {
+		brands.push(asciiAt(bytes, offset, 4));
+	}
+
+	return brands;
+}
+
+const mp4Brands = new Set(['M4V ', 'av01', 'avc1', 'dash', 'iso2', 'iso5', 'iso6', 'isom', 'mp41', 'mp42']);
+
+export function matchesMediaSignature(mimeType: SupportedMediaType, bytes: Uint8Array) {
+	switch (mimeType) {
+		case 'image/jpeg':
+			return bytesMatch(bytes, 0, [0xff, 0xd8, 0xff]);
+		case 'image/png':
+			return bytesMatch(bytes, 0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+		case 'image/gif':
+			return asciiAt(bytes, 0, 6) === 'GIF87a' || asciiAt(bytes, 0, 6) === 'GIF89a';
+		case 'image/webp':
+			return asciiAt(bytes, 0, 4) === 'RIFF' && asciiAt(bytes, 8, 4) === 'WEBP';
+		case 'image/avif':
+			return isoBaseMediaBrands(bytes).some((brand) => brand === 'avif' || brand === 'avis');
+		case 'video/mp4':
+			return isoBaseMediaBrands(bytes).some((brand) => mp4Brands.has(brand));
+		case 'video/webm':
+			return bytesMatch(bytes, 0, [0x1a, 0x45, 0xdf, 0xa3]);
+	}
+}
+
+export function uploadedObjectMetadataMatches(
+	expected: { byteSize: number; mimeType: SupportedMediaType },
+	actual: { contentType?: string; size: number },
+) {
+	return expected.byteSize === actual.size && expected.mimeType === actual.contentType;
+}
 
 interface R2SigningConfiguration {
 	accessKeyId: string;

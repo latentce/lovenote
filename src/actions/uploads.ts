@@ -1,16 +1,36 @@
 import { ActionError, defineAction } from 'astro:actions';
 import { env } from 'cloudflare:workers';
 
-import { recordPendingUpload } from '../db/upload-mutations';
-import { AuthorizationError, requireCapability } from '../lib/authorization';
+import { findOwnedUpload, markUploadReady, recordPendingUpload } from '../db/upload-mutations';
+import { AuthorizationError, requireCapability, requireMember } from '../lib/authorization';
 import {
+	completeUploadInputSchema,
 	mediaKindForMimeType,
 	isSupportedMediaType,
+	matchesMediaSignature,
+	MEDIA_SIGNATURE_BYTE_COUNT,
 	requestUploadInputSchema,
 	signUploadUrl,
 	UNATTACHED_UPLOAD_LIFETIME_MS,
+	uploadedObjectMetadataMatches,
 	type MediaKind,
 } from '../lib/media';
+
+function safeErrorType(error: unknown) {
+	return error instanceof Error ? error.name : 'UnknownError';
+}
+
+function requireUploadMember(locals: App.Locals) {
+	try {
+		return requireMember(locals);
+	} catch (error) {
+		if (error instanceof AuthorizationError) {
+			throw new ActionError({ code: 'UNAUTHORIZED', message: 'Sign in to manage uploads.' });
+		}
+
+		throw error;
+	}
+}
 
 function authorizeUpload(locals: App.Locals, kind: MediaKind) {
 	try {
@@ -39,6 +59,133 @@ function authorizeUpload(locals: App.Locals, kind: MediaKind) {
 }
 
 export const uploadActions = {
+	complete: defineAction({
+		input: completeUploadInputSchema,
+		handler: async ({ assetId }, { locals }) => {
+			const member = requireUploadMember(locals);
+			let upload = await findOwnedUpload(locals.database, assetId, member.id);
+
+			if (!upload || !isSupportedMediaType(upload.mimeType)) {
+				throw new ActionError({ code: 'NOT_FOUND', message: 'The upload was not found.' });
+			}
+
+			authorizeUpload(locals, upload.kind);
+
+			if (upload.uploadState === 'ready') {
+				return { assetId: upload.id, ready: true };
+			}
+
+			const now = new Date();
+			const expired = !upload.expiresAt || upload.expiresAt <= now;
+			let object: R2Object | null;
+
+			try {
+				object = await env.MEDIA_BUCKET.head(upload.objectKey);
+			} catch (error) {
+				console.error(
+					JSON.stringify({
+						assetId,
+						event: 'upload.head_failed',
+						errorType: safeErrorType(error),
+						userId: member.id,
+					}),
+				);
+				throw new ActionError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'The upload could not be verified. Try again later.',
+				});
+			}
+
+			if (!object) {
+				throw new ActionError({ code: 'CONFLICT', message: 'Upload the file before completing it.' });
+			}
+
+			const metadataMatches = uploadedObjectMetadataMatches(
+				{ byteSize: upload.byteSize, mimeType: upload.mimeType },
+				{ contentType: object.httpMetadata?.contentType, size: object.size },
+			);
+			let signatureMatches = false;
+
+			if (!expired && metadataMatches) {
+				try {
+					const signatureObject = await env.MEDIA_BUCKET.get(upload.objectKey, {
+						range: { length: Math.min(object.size, MEDIA_SIGNATURE_BYTE_COUNT), offset: 0 },
+					});
+					signatureMatches =
+						signatureObject !== null &&
+						matchesMediaSignature(upload.mimeType, new Uint8Array(await signatureObject.arrayBuffer()));
+				} catch (error) {
+					console.error(
+						JSON.stringify({
+							assetId,
+							event: 'upload.signature_read_failed',
+							errorType: safeErrorType(error),
+							userId: member.id,
+						}),
+					);
+					throw new ActionError({
+						code: 'INTERNAL_SERVER_ERROR',
+						message: 'The upload could not be verified. Try again later.',
+					});
+				}
+			}
+
+			if (expired || !metadataMatches || !signatureMatches) {
+				try {
+					await env.MEDIA_BUCKET.delete(upload.objectKey);
+				} catch (error) {
+					console.error(
+						JSON.stringify({
+							assetId,
+							event: 'upload.rejected_object_cleanup_failed',
+							errorType: safeErrorType(error),
+							userId: member.id,
+						}),
+					);
+					throw new ActionError({
+						code: 'INTERNAL_SERVER_ERROR',
+						message: 'The invalid upload could not be removed. Contact the owner.',
+					});
+				}
+
+				console.warn(
+					JSON.stringify({
+						assetId,
+						event: 'upload.rejected',
+						reason: expired ? 'expired' : metadataMatches ? 'signature' : 'metadata',
+						userId: member.id,
+					}),
+				);
+				throw new ActionError({
+					code: 'BAD_REQUEST',
+					message: expired
+						? 'The upload has expired. Start a new upload.'
+						: 'The uploaded file does not match the requested media type or size.',
+				});
+			}
+
+			const completedAssetId = await markUploadReady(
+				locals.database,
+				assetId,
+				member.id,
+				object.etag,
+			);
+
+			if (!completedAssetId) {
+				upload = await findOwnedUpload(locals.database, assetId, member.id);
+				if (upload?.uploadState !== 'ready') {
+					throw new ActionError({
+						code: 'CONFLICT',
+						message: 'The upload state changed. Start a new upload.',
+					});
+				}
+			}
+
+			console.info(JSON.stringify({ assetId, event: 'upload.completed', userId: member.id }));
+
+			return { assetId, ready: true };
+		},
+	}),
 	request: defineAction({
 		input: requestUploadInputSchema,
 		handler: async (input, { locals }) => {
@@ -67,7 +214,7 @@ export const uploadActions = {
 				console.error(
 					JSON.stringify({
 						event: 'upload.signing_failed',
-						error: error instanceof Error ? error.message : 'unknown',
+						errorType: safeErrorType(error),
 						userId: uploader.id,
 					}),
 				);

@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	IMAGE_UPLOAD_LIMIT,
+	matchesMediaSignature,
 	requestUploadInputSchema,
 	signUploadUrl,
 	UPLOAD_URL_LIFETIME_SECONDS,
+	uploadedObjectMetadataMatches,
 	VIDEO_UPLOAD_LIMIT,
 } from './media';
 
@@ -80,6 +82,60 @@ describe('media upload input', () => {
 			false,
 		);
 		expect(requestUploadInputSchema.safeParse({ ...image, width: 0 }).success).toBe(false);
+	});
+});
+
+function bytes(...values: number[]) {
+	return new Uint8Array(values);
+}
+
+function ascii(value: string) {
+	return new TextEncoder().encode(value);
+}
+
+describe('uploaded media verification', () => {
+	it.each([
+		['image/jpeg', bytes(0xff, 0xd8, 0xff, 0xe0)],
+		['image/png', bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)],
+		['image/gif', ascii('GIF89a')],
+		['image/webp', ascii('RIFF0000WEBP')],
+		['image/avif', bytes(0, 0, 0, 20, ...ascii('ftypavif'), 0, 0, 0, 0, ...ascii('avif'))],
+		['video/mp4', bytes(0, 0, 0, 20, ...ascii('ftypisom'), 0, 0, 0, 0, ...ascii('mp42'))],
+		['video/webm', bytes(0x1a, 0x45, 0xdf, 0xa3)],
+	] as const)('accepts the expected %s signature', (mimeType, signature) => {
+		expect(matchesMediaSignature(mimeType, signature)).toBe(true);
+	});
+
+	it('rejects content disguised with an allowed MIME type', () => {
+		expect(matchesMediaSignature('image/jpeg', ascii('<svg onload=alert(1)>'))).toBe(false);
+		expect(matchesMediaSignature('video/mp4', bytes(0x1a, 0x45, 0xdf, 0xa3))).toBe(false);
+		expect(
+			matchesMediaSignature(
+				'video/mp4',
+				bytes(0, 0, 0, 20, ...ascii('ftypqt  '), 0, 0, 0, 0, ...ascii('qt  ')),
+			),
+		).toBe(false);
+	});
+
+	it('requires the authoritative R2 size and content type to match', () => {
+		expect(
+			uploadedObjectMetadataMatches(
+				{ byteSize: 1_024, mimeType: 'image/png' },
+				{ contentType: 'image/png', size: 1_024 },
+			),
+		).toBe(true);
+		expect(
+			uploadedObjectMetadataMatches(
+				{ byteSize: 1_024, mimeType: 'image/png' },
+				{ contentType: 'image/jpeg', size: 1_024 },
+			),
+		).toBe(false);
+		expect(
+			uploadedObjectMetadataMatches(
+				{ byteSize: 1_024, mimeType: 'image/png' },
+				{ contentType: 'image/png', size: 2_048 },
+			),
+		).toBe(false);
 	});
 });
 
