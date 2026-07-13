@@ -30,4 +30,4 @@ Consult these guides before working on related tasks:
 - Never commit secrets; commit example configuration only.
 - Before handing off a change, run `pnpm check` plus relevant tests or a production build.
 - Keep changes small and focused, and preserve unrelated user work.
-- Do not create commits. After each coherent change, ask the user to commit and provide a one-line commit message.
+- After each verified coherent change, stage only the files related to that change, create a commit with a concise one-line conventional commit message, and push it to the current branch. The user has authorized the agent to perform these Git operations.
