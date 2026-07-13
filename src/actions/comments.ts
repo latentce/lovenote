@@ -7,6 +7,7 @@ import {
 } from '../db/comment-moderation';
 import { createComment } from '../db/comment-mutations';
 import { AuthorizationError, isOwner, requireCapability } from '../lib/authorization';
+import { postInteractionCacheTags } from '../lib/cache-invalidation';
 import {
 	createCommentInputSchema,
 	deleteCommentInputSchema,
@@ -73,7 +74,7 @@ async function purgeCommentPost(cache: ActionCache, postId: number, operation: s
 	if (!cache.enabled) return true;
 
 	try {
-		await cache.invalidate({ tags: [`post:${postId}`] });
+		await cache.invalidate({ tags: postInteractionCacheTags(postId) });
 		return true;
 	} catch (error) {
 		console.error(
@@ -148,7 +149,7 @@ export const commentActions = {
 
 			if (cache.enabled) {
 				try {
-					await cache.invalidate({ tags: [`post:${input.postId}`] });
+					await cache.invalidate({ tags: postInteractionCacheTags(input.postId) });
 				} catch (error) {
 					console.error(
 						JSON.stringify({

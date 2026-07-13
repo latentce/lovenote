@@ -1,7 +1,28 @@
 import type { PostLifecycleResult } from '../db/post-mutations';
 import type { StagedPostDeletion } from '../db/post-deletion-mutations';
 import type { PostEditResult } from '../db/post-edit-mutations';
+import type { TagMergeResult, TagMutationResult } from '../db/tag-admin';
 import type { PostStatus } from './post';
+
+export function postInteractionCacheTags(postId: number) {
+	return [`post:${postId}`];
+}
+
+export function tagMutationCacheTags(
+	result: TagMutationResult | TagMergeResult,
+	staleTagId?: number,
+) {
+	const tagIds = 'targetTagId' in result
+		? [result.sourceTagId, result.targetTagId]
+		: [result.tagId];
+	if (staleTagId) tagIds.push(staleTagId);
+
+	return [
+		'tags',
+		...[...new Set(tagIds)].map((tagId) => `tag:${tagId}`),
+		...result.publicPostIds.map((postId) => `post:${postId}`),
+	];
+}
 
 export function postCreationCacheTags(tagIds: number[], visibility: 'public' | 'private') {
 	if (visibility === 'private') return [];

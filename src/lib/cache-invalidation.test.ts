@@ -7,8 +7,50 @@ import {
 	postCreationCacheTags,
 	postDeletionCacheTags,
 	postEditCacheTags,
+	postInteractionCacheTags,
 	postLifecycleCacheTags,
+	tagMutationCacheTags,
 } from './cache-invalidation';
+
+describe('post interaction cache invalidation', () => {
+	it('purges the post detail after comments and favorites change', () => {
+		expect(postInteractionCacheTags(42)).toEqual(['post:42']);
+	});
+});
+
+describe('tag cache invalidation', () => {
+	it('purges tag metadata, its archive, and affected public post details', () => {
+		expect(
+			tagMutationCacheTags({
+				changed: true,
+				publicPostIds: [4, 9],
+				slug: 'photographs',
+				tagId: 7,
+			}),
+		).toEqual(['tags', 'tag:7', 'post:4', 'post:9']);
+	});
+
+	it('purges both archives and post details after a merge', () => {
+		expect(
+			tagMutationCacheTags({
+				publicPostIds: [4, 9],
+				sourceSlug: 'photos',
+				sourceTagId: 2,
+				targetSlug: 'photographs',
+				targetTagId: 7,
+			}),
+		).toEqual(['tags', 'tag:2', 'tag:7', 'post:4', 'post:9']);
+	});
+
+	it('includes the stale archive when retrying a post-merge purge', () => {
+		expect(
+			tagMutationCacheTags(
+				{ changed: false, publicPostIds: [4], slug: '', tagId: 7 },
+				2,
+			),
+		).toEqual(['tags', 'tag:7', 'tag:2', 'post:4']);
+	});
+});
 
 describe('post creation cache invalidation', () => {
 	it('purges public listings and each assigned tag archive', () => {

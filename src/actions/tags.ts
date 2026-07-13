@@ -9,6 +9,7 @@ import {
 	updateTag,
 } from '../db/tag-admin';
 import { AuthorizationError, requireCapability } from '../lib/authorization';
+import { tagMutationCacheTags } from '../lib/cache-invalidation';
 import {
 	createTagInputSchema,
 	mergeTagInputSchema,
@@ -51,22 +52,6 @@ function postgresErrorCode(error: unknown): string | null {
 	return null;
 }
 
-function cacheTagsForMutation(
-	result: TagMutationResult | TagMergeResult,
-	staleTagId?: number,
-) {
-	const tagIds = 'targetTagId' in result
-		? [result.sourceTagId, result.targetTagId]
-		: [result.tagId];
-	if (staleTagId) tagIds.push(staleTagId);
-
-	return [
-		'tags',
-		...[...new Set(tagIds)].map((tagId) => `tag:${tagId}`),
-		...result.publicPostIds.map((postId) => `post:${postId}`),
-	];
-}
-
 async function purgeTagMutation(
 	cache: ActionCache,
 	result: TagMutationResult | TagMergeResult,
@@ -74,7 +59,7 @@ async function purgeTagMutation(
 	if (!cache.enabled) return true;
 
 	try {
-		await cache.invalidate({ tags: cacheTagsForMutation(result) });
+		await cache.invalidate({ tags: tagMutationCacheTags(result) });
 		return true;
 	} catch (error) {
 		console.error(
@@ -202,7 +187,7 @@ export const tagActions = {
 			if (cache.enabled) {
 				try {
 					await cache.invalidate({
-						tags: cacheTagsForMutation(
+						tags: tagMutationCacheTags(
 							{ changed: false, publicPostIds: context.publicPostIds, slug: '', tagId: context.tagId },
 							input.staleTagId,
 						),

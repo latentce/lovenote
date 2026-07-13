@@ -2,6 +2,7 @@ import { ActionError, defineAction } from 'astro:actions';
 
 import { toggleFavorite } from '../db/favorite-mutations';
 import { AuthorizationError, isOwner, requireCapability } from '../lib/authorization';
+import { postInteractionCacheTags } from '../lib/cache-invalidation';
 import { toggleFavoriteInputSchema } from '../lib/favorite';
 
 function authorizeFavoriteToggle(locals: App.Locals) {
@@ -54,7 +55,7 @@ export const favoriteActions = {
 
 			if (cache.enabled) {
 				try {
-					await cache.invalidate({ tags: [`post:${input.postId}`] });
+					await cache.invalidate({ tags: postInteractionCacheTags(input.postId) });
 				} catch (error) {
 					console.error(
 						JSON.stringify({
