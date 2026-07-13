@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	banMemberInputSchema,
 	createMemberInputSchema,
 	MAX_MEMBER_ACCOUNTS,
+	memberStatusInputSchema,
 	updateMemberPermissionsInputSchema,
 } from './member';
 
@@ -65,6 +67,16 @@ describe('member creation input', () => {
 			createPosts: false,
 			manageTags: true,
 			moderateComments: false,
+			userId: 'member-id',
+		});
+	});
+
+	it('requires explicit confirmation to ban but not to unban a member', () => {
+		expect(banMemberInputSchema.safeParse({ userId: 'member-id' }).success).toBe(false);
+		expect(
+			banMemberInputSchema.parse({ confirmation: 'ban', userId: 'member-id' }),
+		).toEqual({ confirmation: 'ban', userId: 'member-id' });
+		expect(memberStatusInputSchema.parse({ userId: 'member-id' })).toEqual({
 			userId: 'member-id',
 		});
 	});

@@ -45,6 +45,14 @@ export const updateMemberPermissionsInputSchema = z.object({
 	...permissionInputShape,
 });
 
+export const memberStatusInputSchema = z.object({
+	userId: z.string().min(1).max(128),
+});
+
+export const banMemberInputSchema = memberStatusInputSchema.extend({
+	confirmation: z.literal('ban'),
+});
+
 export type CreateMemberInput = z.infer<typeof createMemberInputSchema>;
 export type NewMemberPermissions = Omit<
 	CreateMemberInput,

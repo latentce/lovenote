@@ -6,14 +6,17 @@ import { user } from '../db/auth-schema';
 import {
 	addMemberPermissions,
 	countMembers,
+	findManageableMember,
 	updateMemberPermissions,
 } from '../db/member-admin';
 import type { Auth } from '../lib/auth';
 import { AuthorizationError, requireOwner } from '../lib/authorization';
 import { createInternalEmail } from '../lib/internal-email';
 import {
+	banMemberInputSchema,
 	createMemberInputSchema,
 	MAX_MEMBER_ACCOUNTS,
+	memberStatusInputSchema,
 	type NewMemberPermissions,
 	updateMemberPermissionsInputSchema,
 } from '../lib/member';
@@ -76,6 +79,84 @@ async function cleanUpIncompleteMember(
 		);
 		return accountDisabled;
 	}
+}
+
+async function changeMemberBanStatus(
+	locals: App.Locals,
+	requestHeaders: Headers,
+	userId: string,
+	banned: boolean,
+) {
+	const owner = authorizeUserManagement(locals);
+	const member = await findManageableMember(locals.database, userId);
+	if (!member) {
+		throw new ActionError({
+			code: 'NOT_FOUND',
+			message: 'This member is unavailable or cannot have owner access changed.',
+		});
+	}
+
+	const changed = (member.banned === true) !== banned;
+	if (!changed && !banned) {
+		return { banned, changed: false, userId: member.id };
+	}
+
+	try {
+		if (banned) {
+			await locals.auth.api.banUser({
+				body: {
+					banReason: 'Disabled by the LoveNote owner.',
+					userId: member.id,
+				},
+				headers: requestHeaders,
+			});
+		} else {
+			await locals.auth.api.unbanUser({
+				body: { userId: member.id },
+				headers: requestHeaders,
+			});
+		}
+	} catch (error) {
+		if (isAPIError(error)) {
+			const code = typeof error.body?.code === 'string' ? error.body.code : error.status;
+			console.warn(
+				JSON.stringify({
+					code,
+					event: 'owner.member_status_rejected',
+					ownerId: owner.id,
+					userId: member.id,
+				}),
+			);
+
+			if (error.status === 'UNAUTHORIZED') {
+				throw new ActionError({
+					code: 'UNAUTHORIZED',
+					message: 'Your owner session has expired. Sign in again.',
+				});
+			}
+			if (error.status === 'FORBIDDEN') {
+				throw new ActionError({
+					code: 'FORBIDDEN',
+					message: 'The account status change was not allowed.',
+				});
+			}
+		}
+
+		throw new ActionError({
+			code: 'INTERNAL_SERVER_ERROR',
+			message: 'The account status could not be changed. Please try again.',
+		});
+	}
+
+	console.info(
+		JSON.stringify({
+			changed,
+			event: banned ? 'owner.member_banned' : 'owner.member_unbanned',
+			ownerId: owner.id,
+			userId: member.id,
+		}),
+	);
+	return { banned, changed, userId: member.id };
 }
 
 export const userActions = {
@@ -200,5 +281,17 @@ export const userActions = {
 
 			return { updated: true, userId: updatedUserId };
 		},
+	}),
+	ban: defineAction({
+		accept: 'form',
+		input: banMemberInputSchema,
+		handler: (input, { locals, request }) =>
+			changeMemberBanStatus(locals, request.headers, input.userId, true),
+	}),
+	unban: defineAction({
+		accept: 'form',
+		input: memberStatusInputSchema,
+		handler: (input, { locals, request }) =>
+			changeMemberBanStatus(locals, request.headers, input.userId, false),
 	}),
 };

@@ -8,6 +8,7 @@ import { schema } from './client';
 import {
 	addMemberPermissions,
 	buildMemberListQuery,
+	findManageableMember,
 	updateMemberPermissions,
 } from './member-admin';
 
@@ -88,5 +89,21 @@ describe('owner member queries', () => {
 		await expect(
 			updateMemberPermissions(database, { ...permissions, userId: 'owner-id' }),
 		).resolves.toBeNull();
+	});
+
+	it('loads a ban target only when it does not carry the owner role', async () => {
+		const execute = vi.fn().mockResolvedValue({ rows: [{ banned: false, id: 'member-id' }] });
+		const database = { execute } as unknown as Database;
+
+		await expect(findManageableMember(database, 'member-id')).resolves.toEqual({
+			banned: false,
+			id: 'member-id',
+		});
+
+		const query = execute.mock.calls[0]?.[0];
+		const compiled = new PgDialect().sqlToQuery(query!);
+		expect(compiled.sql).toContain('from "user"');
+		expect(compiled.sql).toContain("'admin' = any(string_to_array");
+		expect(compiled.params).toContain('member-id');
 	});
 });

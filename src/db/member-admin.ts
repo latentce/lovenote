@@ -122,4 +122,17 @@ export async function updateMemberPermissions(
 	return result.rows[0]?.userId ?? null;
 }
 
+export async function findManageableMember(database: Database, userId: string) {
+	const result = await database.execute<{ banned: boolean | null; id: string }>(sql`
+		select "user".id, "user".banned
+		from "user"
+		where "user".id = ${userId}
+			and not (
+				'admin' = any(string_to_array(coalesce("user".role, ''), ','))
+			)
+	`);
+
+	return result.rows[0] ?? null;
+}
+
 export type ManagedMember = Awaited<ReturnType<typeof listMembers>>[number];
