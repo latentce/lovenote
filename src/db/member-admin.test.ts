@@ -9,6 +9,7 @@ import {
 	addMemberPermissions,
 	buildMemberListQuery,
 	findManageableMember,
+	stageMemberPasswordReset,
 	updateMemberPermissions,
 } from './member-admin';
 
@@ -103,6 +104,25 @@ describe('owner member queries', () => {
 		const query = execute.mock.calls[0]?.[0];
 		const compiled = new PgDialect().sqlToQuery(query!);
 		expect(compiled.sql).toContain('from "user"');
+		expect(compiled.sql).toContain("'admin' = any(string_to_array");
+		expect(compiled.params).toContain('member-id');
+	});
+
+	it('stages temporary-password enforcement under a row lock before a reset', async () => {
+		const execute = vi.fn().mockResolvedValue({
+			rows: [{ changed: true, userId: 'member-id' }],
+		});
+		const database = { execute } as unknown as Database;
+
+		await expect(stageMemberPasswordReset(database, 'member-id')).resolves.toEqual({
+			changed: true,
+			userId: 'member-id',
+		});
+
+		const query = execute.mock.calls[0]?.[0];
+		const compiled = new PgDialect().sqlToQuery(query!);
+		expect(compiled.sql).toContain('for update of member_permissions');
+		expect(compiled.sql).toContain('temporary_password = true');
 		expect(compiled.sql).toContain("'admin' = any(string_to_array");
 		expect(compiled.params).toContain('member-id');
 	});

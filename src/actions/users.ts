@@ -7,6 +7,7 @@ import {
 	addMemberPermissions,
 	countMembers,
 	findManageableMember,
+	stageMemberPasswordReset,
 	updateMemberPermissions,
 } from '../db/member-admin';
 import type { Auth } from '../lib/auth';
@@ -18,6 +19,7 @@ import {
 	MAX_MEMBER_ACCOUNTS,
 	memberStatusInputSchema,
 	type NewMemberPermissions,
+	resetMemberPasswordInputSchema,
 	updateMemberPermissionsInputSchema,
 } from '../lib/member';
 
@@ -159,6 +161,11 @@ async function changeMemberBanStatus(
 	return { banned, changed, userId: member.id };
 }
 
+function authErrorCode(error: unknown) {
+	if (!isAPIError(error)) return null;
+	return typeof error.body?.code === 'string' ? error.body.code : error.status;
+}
+
 export const userActions = {
 	create: defineAction({
 		accept: 'form',
@@ -293,5 +300,117 @@ export const userActions = {
 		input: memberStatusInputSchema,
 		handler: (input, { locals, request }) =>
 			changeMemberBanStatus(locals, request.headers, input.userId, false),
+	}),
+	resetPassword: defineAction({
+		accept: 'form',
+		input: resetMemberPasswordInputSchema,
+		handler: async (input, { locals, request }) => {
+			const owner = authorizeUserManagement(locals);
+			const staged = await stageMemberPasswordReset(locals.database, input.userId);
+			if (!staged) {
+				throw new ActionError({
+					code: 'NOT_FOUND',
+					message: 'This member is unavailable or cannot have the owner password reset.',
+				});
+			}
+
+			try {
+				await locals.auth.api.revokeUserSessions({
+					body: { userId: staged.userId },
+					headers: request.headers,
+				});
+			} catch (error) {
+				console.error(
+					JSON.stringify({
+						code: authErrorCode(error),
+						event: 'owner.member_password_reset_failed',
+						phase: 'initial_session_revoke',
+						userId: staged.userId,
+					}),
+				);
+				throw new ActionError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'Sessions could not be revoked, so the password was not changed. Try again.',
+				});
+			}
+
+			try {
+				await locals.auth.api.setUserPassword({
+					body: {
+						newPassword: input.newPassword,
+						userId: staged.userId,
+					},
+					headers: request.headers,
+				});
+			} catch (error) {
+				console.error(
+					JSON.stringify({
+						code: authErrorCode(error),
+						event: 'owner.member_password_reset_failed',
+						phase: 'password_change',
+						userId: staged.userId,
+					}),
+				);
+				throw new ActionError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'The password could not be reset. Existing sessions were revoked; try again.',
+				});
+			}
+
+			let sessionsRevoked = true;
+			let accountBanned = false;
+			try {
+				await locals.auth.api.revokeUserSessions({
+					body: { userId: staged.userId },
+					headers: request.headers,
+				});
+			} catch (error) {
+				sessionsRevoked = false;
+				console.error(
+					JSON.stringify({
+						code: authErrorCode(error),
+						event: 'owner.member_password_reset_failed',
+						phase: 'final_session_revoke',
+						userId: staged.userId,
+					}),
+				);
+
+				try {
+					await locals.auth.api.banUser({
+						body: {
+							banReason: 'Password reset session cleanup did not complete.',
+							userId: staged.userId,
+						},
+						headers: request.headers,
+					});
+					accountBanned = true;
+				} catch (banError) {
+					console.error(
+						JSON.stringify({
+							code: authErrorCode(banError),
+							event: 'owner.member_password_reset_ban_failed',
+							userId: staged.userId,
+						}),
+					);
+				}
+			}
+
+			console.info(
+				JSON.stringify({
+					accountBanned,
+					event: 'owner.member_password_reset',
+					ownerId: owner.id,
+					sessionsRevoked,
+					userId: staged.userId,
+				}),
+			);
+
+			return {
+				accountBanned,
+				reset: true,
+				sessionsRevoked,
+				userId: staged.userId,
+			};
+		},
 	}),
 };

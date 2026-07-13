@@ -135,4 +135,32 @@ export async function findManageableMember(database: Database, userId: string) {
 	return result.rows[0] ?? null;
 }
 
+export async function stageMemberPasswordReset(database: Database, userId: string) {
+	const result = await database.execute<{ changed: boolean; userId: string }>(sql`
+		with target_member as materialized (
+			select member_permissions.user_id, member_permissions.temporary_password
+			from member_permissions
+			inner join "user" on "user".id = member_permissions.user_id
+			where member_permissions.user_id = ${userId}
+				and not (
+					'admin' = any(string_to_array(coalesce("user".role, ''), ','))
+				)
+			for update of member_permissions
+		), staged_member as (
+			update member_permissions
+			set temporary_password = true, updated_at = now()
+			from target_member
+			where member_permissions.user_id = target_member.user_id
+				and target_member.temporary_password = false
+			returning member_permissions.user_id
+		)
+		select
+			target_member.user_id as "userId",
+			target_member.temporary_password = false as changed
+		from target_member
+	`);
+
+	return result.rows[0] ?? null;
+}
+
 export type ManagedMember = Awaited<ReturnType<typeof listMembers>>[number];

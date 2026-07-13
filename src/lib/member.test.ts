@@ -5,6 +5,7 @@ import {
 	createMemberInputSchema,
 	MAX_MEMBER_ACCOUNTS,
 	memberStatusInputSchema,
+	resetMemberPasswordInputSchema,
 	updateMemberPermissionsInputSchema,
 } from './member';
 
@@ -79,5 +80,26 @@ describe('member creation input', () => {
 		expect(memberStatusInputSchema.parse({ userId: 'member-id' })).toEqual({
 			userId: 'member-id',
 		});
+	});
+
+	it('validates a matching temporary password for an owner reset', () => {
+		expect(
+			resetMemberPasswordInputSchema.parse({
+				confirmPassword: 'replacement-password',
+				newPassword: 'replacement-password',
+				userId: 'member-id',
+			}),
+		).toEqual({
+			confirmPassword: 'replacement-password',
+			newPassword: 'replacement-password',
+			userId: 'member-id',
+		});
+		expect(
+			resetMemberPasswordInputSchema.safeParse({
+				confirmPassword: 'different-password',
+				newPassword: 'replacement-password',
+				userId: 'member-id',
+			}).success,
+		).toBe(false);
 	});
 });

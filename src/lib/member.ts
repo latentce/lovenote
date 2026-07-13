@@ -53,6 +53,19 @@ export const banMemberInputSchema = memberStatusInputSchema.extend({
 	confirmation: z.literal('ban'),
 });
 
+export const resetMemberPasswordInputSchema = memberStatusInputSchema
+	.extend({
+		newPassword: z
+			.string()
+			.min(12, 'Password must be at least 12 characters.')
+			.max(128, 'Password must be at most 128 characters.'),
+		confirmPassword: z.string(),
+	})
+	.refine(({ confirmPassword, newPassword }) => confirmPassword === newPassword, {
+		message: 'Passwords do not match.',
+		path: ['confirmPassword'],
+	});
+
 export type CreateMemberInput = z.infer<typeof createMemberInputSchema>;
 export type NewMemberPermissions = Omit<
 	CreateMemberInput,

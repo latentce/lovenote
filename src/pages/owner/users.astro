@@ -22,6 +22,7 @@ const permissionsResult = Astro.getActionResult(actions.users.updatePermissions)
 const banResult = Astro.getActionResult(actions.users.ban);
 const unbanResult = Astro.getActionResult(actions.users.unban);
 const statusResult = banResult ?? unbanResult;
+const passwordResult = Astro.getActionResult(actions.users.resetPassword);
 const inputErrors = isInputError(createResult?.error) ? createResult.error.fields : {};
 const members = owner ? await listMembers(Astro.locals.database) : [];
 const canCreateMember = members.length < MAX_MEMBER_ACCOUNTS;
@@ -30,6 +31,9 @@ const updatedMember = permissionsResult?.data?.updated
 	: null;
 const statusMember = statusResult?.data
 	? members.find((member) => member.id === statusResult.data.userId)
+	: null;
+const passwordMember = passwordResult?.data
+	? members.find((member) => member.id === passwordResult.data.userId)
 	: null;
 const permissionOptions = [
 	{ checked: true, key: 'createPosts', label: 'Create posts' },
@@ -97,6 +101,21 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 				{statusResult?.error && (
 					<p class="mt-7 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900" role="alert">
 						{isInputError(statusResult.error) ? 'Confirm the account status request before continuing.' : statusResult.error.message}
+					</p>
+				)}
+				{passwordResult?.data?.reset && passwordResult.data.sessionsRevoked && (
+					<p class="mt-7 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900" role="status">
+						The temporary password for @{passwordMember?.displayUsername ?? 'the member'} was reset and all sessions were revoked. {passwordMember?.banned ? 'The account remains banned.' : 'Share the temporary password securely.'}
+					</p>
+				)}
+				{passwordResult?.data?.reset && !passwordResult.data.sessionsRevoked && (
+					<p class="mt-7 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950" role="alert">
+						The password changed, but final session cleanup failed. {passwordResult.data.accountBanned ? 'The account was banned for safety; retry the reset before restoring access.' : 'Ban the account before sharing the new password.'}
+					</p>
+				)}
+				{passwordResult?.error && (
+					<p class="mt-7 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900" role="alert">
+						{isInputError(passwordResult.error) ? 'Enter matching temporary passwords between 12 and 128 characters.' : passwordResult.error.message}
 					</p>
 				)}
 
@@ -180,6 +199,26 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 												</form>
 											</details>
 										)
+									)}
+									{!memberIsOwner && (
+										<details class="mt-5 rounded-2xl border border-stone-200 bg-stone-50 p-4 text-sm text-stone-900">
+											<summary class="cursor-pointer font-semibold">Reset temporary password</summary>
+											<p class="mt-3 text-stone-600">This revokes every active session and requires another password change after sign-in.</p>
+											<form method="POST" action={actions.users.resetPassword} class="mt-4 space-y-4">
+												<input type="hidden" name="userId" value={member.id} />
+												<div class="grid gap-4 sm:grid-cols-2">
+													<label class="block">
+														<span class="font-medium">New temporary password</span>
+														<input type="password" name="newPassword" required minlength="12" maxlength="128" autocomplete="new-password" class="mt-2 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 outline-none focus:border-rosewood focus:ring-2 focus:ring-rose-100" />
+													</label>
+													<label class="block">
+														<span class="font-medium">Confirm password</span>
+														<input type="password" name="confirmPassword" required minlength="12" maxlength="128" autocomplete="new-password" class="mt-2 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 outline-none focus:border-rosewood focus:ring-2 focus:ring-rose-100" />
+													</label>
+												</div>
+												<button type="submit" class="rounded-xl bg-stone-900 px-4 py-2 font-semibold text-white hover:bg-stone-700">Reset password</button>
+											</form>
+										</details>
 									)}
 									{memberIsOwner ? (
 										<p class="mt-4 text-sm text-stone-600">The owner always has every capability.</p>
