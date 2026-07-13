@@ -114,6 +114,87 @@ export async function listPublicPosts(
 export type PublicPostSummary = Awaited<ReturnType<typeof listPublicPosts>>['items'][number];
 export type PostMediaSummary = PublicPostSummary['media'][number];
 
+export function buildPrivatePostsQuery(
+	database: Pick<Database, 'query'>,
+	cursor: PostCursor | null,
+	limit: number,
+	viewer: AuthenticatedUser,
+) {
+	return database.query.posts.findMany({
+		columns: {
+			authorId: true,
+			body: true,
+			createdAt: true,
+			id: true,
+			status: true,
+			updatedAt: true,
+			visibility: true,
+		},
+		limit: limit + 1,
+		orderBy: [desc(posts.createdAt), desc(posts.id)],
+		where: and(
+			eq(posts.visibility, 'private'),
+			visiblePostFilter(viewer),
+			afterPostCursor(cursor),
+		),
+		with: {
+			author: {
+				columns: {
+					displayUsername: true,
+					name: true,
+				},
+			},
+			media: {
+				columns: {
+					altText: true,
+					attachmentOrder: true,
+					byteSize: true,
+					deliveryRevision: true,
+					durationMs: true,
+					height: true,
+					id: true,
+					kind: true,
+					mimeType: true,
+					originalFilename: true,
+					width: true,
+				},
+				orderBy: [asc(mediaAssets.attachmentOrder)],
+				where: eq(mediaAssets.uploadState, 'ready'),
+			},
+		},
+	});
+}
+
+export async function listPrivatePosts(
+	database: Database,
+	viewer: AuthenticatedUser,
+	cursorValue?: string | null,
+	pageSize = PUBLIC_POST_PAGE_SIZE,
+) {
+	const cursor = decodePostCursor(cursorValue);
+	const requestedLimit = Number.isFinite(pageSize) ? Math.trunc(pageSize) : PUBLIC_POST_PAGE_SIZE;
+	const limit = Math.min(Math.max(requestedLimit, 1), 100);
+	const rows = await buildPrivatePostsQuery(database, cursor, limit, viewer);
+
+	const hasNextPage = rows.length > limit;
+	const pageRows = hasNextPage ? rows.slice(0, limit) : rows;
+	const items = pageRows.map(({ author, ...post }) => ({
+		...post,
+		authorUsername: author.displayUsername ?? author.name,
+	}));
+	const finalPost = items.at(-1);
+
+	return {
+		items,
+		nextCursor:
+			hasNextPage && finalPost
+				? encodePostCursor({ createdAt: finalPost.createdAt, id: finalPost.id })
+				: null,
+	};
+}
+
+export type PrivatePostSummary = Awaited<ReturnType<typeof listPrivatePosts>>['items'][number];
+
 export function buildPostDetailQuery(
 	database: Pick<Database, 'query'>,
 	postId: number,

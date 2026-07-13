@@ -2,7 +2,11 @@ import { drizzle } from 'drizzle-orm/neon-http';
 import { describe, expect, it } from 'vitest';
 
 import type { AuthenticatedUser } from '../lib/auth';
-import { buildPostDetailQuery, buildPublicPostsQuery } from './post-queries';
+import {
+	buildPostDetailQuery,
+	buildPrivatePostsQuery,
+	buildPublicPostsQuery,
+} from './post-queries';
 import { schema } from './client';
 
 describe('public post feed query', () => {
@@ -21,6 +25,46 @@ describe('public post feed query', () => {
 		expect(query.params).toContain('ready');
 		expect(query.params).toContain(42);
 		expect(query.params).toContain(21);
+	});
+});
+
+describe('private post feed query', () => {
+	it('shows active private posts and only the member’s own hidden private posts', () => {
+		const database = drizzle.mock({ schema });
+		const cursor = { createdAt: new Date('2026-07-13T18:00:00.000Z'), id: 42 };
+		const member = {
+			banned: false,
+			id: 'member-id',
+			role: 'user',
+		} as AuthenticatedUser;
+		const query = buildPrivatePostsQuery(database, cursor, 20, member).toSQL();
+
+		expect(query.sql).toContain('"posts"."visibility" = $');
+		expect(query.sql).toContain('"posts_media"."upload_state"');
+		expect(query.sql).not.toContain('object_key');
+		expect(query.sql.toLowerCase()).not.toContain(' offset ');
+		expect(query.params).toContain('private');
+		expect(query.params).toContain('active');
+		expect(query.params).toContain('hidden');
+		expect(query.params).toContain('member-id');
+		expect(query.params).toContain('ready');
+		expect(query.params).toContain(42);
+		expect(query.params).toContain(21);
+	});
+
+	it('shows the owner every private post except records awaiting deletion', () => {
+		const database = drizzle.mock({ schema });
+		const owner = {
+			banned: false,
+			id: 'owner-id',
+			role: 'admin',
+		} as AuthenticatedUser;
+		const query = buildPrivatePostsQuery(database, null, 20, owner).toSQL();
+
+		expect(query.sql).toContain('"posts"."status" <> $');
+		expect(query.params).toContain('private');
+		expect(query.params).toContain('deleting');
+		expect(query.params).not.toContain('hidden');
 	});
 });
 
