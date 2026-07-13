@@ -6,6 +6,7 @@ import {
 	createPostInputSchema,
 	deletePostInputSchema,
 	decodePostCursor,
+	editPostInputSchema,
 	encodePostCursor,
 	postLifecycleInputSchema,
 	tokenizePostBody,
@@ -117,6 +118,28 @@ describe('post lifecycle input', () => {
 	it('requires explicit permanent-deletion confirmation', () => {
 		expect(deletePostInputSchema.safeParse({ confirmation: 'delete', postId: '42' }).success).toBe(true);
 		expect(deletePostInputSchema.safeParse({ confirmation: 'keep', postId: '42' }).success).toBe(false);
+	});
+});
+
+describe('post edit input', () => {
+	it('normalizes form values while allowing the database to validate media-only posts', () => {
+		expect(editPostInputSchema.parse({ body: 'one\r\ntwo', postId: '42', visibility: 'private' })).toEqual({
+			body: 'one\ntwo',
+			postId: 42,
+			purgePublic: false,
+			visibility: 'private',
+		});
+		expect(editPostInputSchema.safeParse({ body: '', postId: '42', visibility: 'public' }).success).toBe(true);
+	});
+
+	it('enforces post text and visibility limits', () => {
+		expect(editPostInputSchema.safeParse({ body: 'a'.repeat(10_001), postId: 42, visibility: 'public' }).success).toBe(false);
+		expect(editPostInputSchema.safeParse({ body: 'Post', postId: 42, visibility: 'friends' }).success).toBe(false);
+	});
+
+	it('accepts only the internal public-purge retry marker', () => {
+		expect(editPostInputSchema.parse({ body: 'Post', postId: 42, purgePublic: 'true', visibility: 'private' }).purgePublic).toBe(true);
+		expect(editPostInputSchema.safeParse({ body: 'Post', postId: 42, purgePublic: 'false', visibility: 'private' }).success).toBe(false);
 	});
 });
 

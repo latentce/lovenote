@@ -7,6 +7,7 @@ import {
 	buildPrivatePostsQuery,
 	buildPublicPostsQuery,
 	buildOwnPostsQuery,
+	buildOwnPostForEditQuery,
 } from './post-queries';
 import { schema } from './client';
 
@@ -123,5 +124,19 @@ describe('author post management query', () => {
 		expect(query.sql).not.toContain('media_assets');
 		expect(query.params).toContain('author-id');
 		expect(query.params).toContain(50);
+	});
+
+	it('loads one owned non-deleting post with only ready attachment IDs for editing', () => {
+		const database = drizzle.mock({ schema });
+		const query = buildOwnPostForEditQuery(database, 'author-id', 42).toSQL();
+
+		expect(query.sql).toContain('"posts"."author_id" = $');
+		expect(query.sql).toContain('"posts"."status" <> $');
+		expect(query.sql).toContain('"posts_media"."upload_state" = $');
+		expect(query.sql).not.toContain('object_key');
+		expect(query.params).toContain('author-id');
+		expect(query.params).toContain(42);
+		expect(query.params).toContain('deleting');
+		expect(query.params).toContain('ready');
 	});
 });

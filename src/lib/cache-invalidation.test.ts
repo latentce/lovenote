@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import type { PostLifecycleResult } from '../db/post-mutations';
 import type { StagedPostDeletion } from '../db/post-deletion-mutations';
-import { postDeletionCacheTags, postLifecycleCacheTags } from './cache-invalidation';
+import type { PostEditResult } from '../db/post-edit-mutations';
+import {
+	postDeletionCacheTags,
+	postEditCacheTags,
+	postLifecycleCacheTags,
+} from './cache-invalidation';
 
 const publicPost: PostLifecycleResult = {
 	changed: true,
@@ -55,5 +60,39 @@ describe('post deletion cache invalidation', () => {
 			'tag:7',
 			'media:3df91f2d-582c-4d2a-b24d-c42d2ed58f7d:3',
 		]);
+	});
+});
+
+describe('post edit cache invalidation', () => {
+	it('purges old public views and media when an edit makes a post private', () => {
+		const edit: PostEditResult = {
+			...publicPost,
+			previousVisibility: 'public',
+			status: 'active',
+			visibility: 'private',
+		};
+
+		expect(postEditCacheTags(edit)).toEqual([
+			'post:42',
+			'feed',
+			'archive',
+			'tags',
+			'tag:2',
+			'tag:7',
+			'media:3df91f2d-582c-4d2a-b24d-c42d2ed58f7d:3',
+		]);
+	});
+
+	it('can retry public purges after the database already records private visibility', () => {
+		const retry: PostEditResult = {
+			...publicPost,
+			media: [],
+			previousVisibility: 'private',
+			status: 'active',
+			visibility: 'private',
+		};
+
+		expect(postEditCacheTags(retry, true)).toContain('feed');
+		expect(postEditCacheTags(retry, false)).toEqual(['post:42']);
 	});
 });

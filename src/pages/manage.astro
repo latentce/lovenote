@@ -27,6 +27,7 @@ const lifecycleResult = hideResult ?? restoreResult;
 const inputErrors = isInputError(result?.error) ? result.error.fields : {};
 const canCreatePosts = hasCapability(Astro.locals, 'createPosts');
 const canDeleteOwnPosts = hasCapability(Astro.locals, 'deleteOwnPosts');
+const canEditOwnPosts = hasCapability(Astro.locals, 'editOwnPosts');
 const canHideOwnPosts = hasCapability(Astro.locals, 'hideOwnPosts');
 const canUploadImages = hasCapability(Astro.locals, 'uploadImages');
 const canUploadVideos = hasCapability(Astro.locals, 'uploadVideos');
@@ -246,6 +247,9 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 							</p>
 
 							<div class="mt-5 flex flex-wrap items-start gap-3">
+								{canEditOwnPosts && post.status !== 'deleting' && (
+									<a href={`/manage/posts/${post.id}`} class="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-800 hover:border-stone-400 hover:bg-stone-50">Edit post</a>
+								)}
 								{canHideOwnPosts && post.status !== 'deleting' && (
 									<form
 										method="POST"

@@ -24,6 +24,12 @@ const postBodySchema = z.preprocess(
 		.transform((body) => body.replace(/\r\n?/g, '\n')),
 );
 
+export const editPostInputSchema = postLifecycleInputSchema.extend({
+	body: postBodySchema,
+	purgePublic: z.literal('true').optional().transform((value) => value === 'true'),
+	visibility: postVisibilitySchema,
+});
+
 export const createPostInputSchema = z
 	.object({
 		body: postBodySchema,
@@ -50,6 +56,7 @@ export const createPostInputSchema = z
 
 export type CreatePostInput = z.infer<typeof createPostInputSchema>;
 export type DeletePostInput = z.infer<typeof deletePostInputSchema>;
+export type EditPostInput = z.infer<typeof editPostInputSchema>;
 export type PostLifecycleInput = z.infer<typeof postLifecycleInputSchema>;
 export type PostVisibility = z.infer<typeof postVisibilitySchema>;
 export type PostStatus = 'active' | 'hidden' | 'deleting';

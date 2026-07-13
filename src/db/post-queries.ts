@@ -222,6 +222,44 @@ export async function listOwnPosts(database: Database, authorId: string) {
 
 export type OwnPostSummary = Awaited<ReturnType<typeof listOwnPosts>>[number];
 
+export function buildOwnPostForEditQuery(
+	database: Pick<Database, 'query'>,
+	authorId: string,
+	postId: number,
+) {
+	return database.query.posts.findFirst({
+		columns: {
+			body: true,
+			id: true,
+			status: true,
+			visibility: true,
+		},
+		where: and(
+			eq(posts.id, postId),
+			eq(posts.authorId, authorId),
+			ne(posts.status, 'deleting'),
+		),
+		with: {
+			media: {
+				columns: { id: true },
+				where: eq(mediaAssets.uploadState, 'ready'),
+			},
+		},
+	});
+}
+
+export async function findOwnPostForEdit(
+	database: Database,
+	authorId: string,
+	postId: number,
+) {
+	const post = await buildOwnPostForEditQuery(database, authorId, postId);
+	if (!post) return null;
+
+	const { media, ...editablePost } = post;
+	return { ...editablePost, hasMedia: media.length > 0 };
+}
+
 export function buildPostDetailQuery(
 	database: Pick<Database, 'query'>,
 	postId: number,
