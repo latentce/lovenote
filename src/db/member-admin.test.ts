@@ -5,7 +5,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { MAX_MEMBER_ACCOUNTS } from '../lib/member';
 import type { Database } from './client';
 import { schema } from './client';
-import { addMemberPermissions, buildMemberListQuery } from './member-admin';
+import {
+	addMemberPermissions,
+	buildMemberListQuery,
+	updateMemberPermissions,
+} from './member-admin';
 
 const permissions = {
 	createComments: true,
@@ -55,5 +59,34 @@ describe('owner member queries', () => {
 		} as unknown as Database;
 
 		await expect(addMemberPermissions(database, 'extra-member', permissions)).resolves.toBeNull();
+	});
+
+	it('atomically replaces a member’s capabilities while excluding the owner role', async () => {
+		const execute = vi.fn().mockResolvedValue({ rows: [{ userId: 'member-id' }] });
+		const database = { execute } as unknown as Database;
+
+		await expect(
+			updateMemberPermissions(database, { ...permissions, manageTags: true, userId: 'member-id' }),
+		).resolves.toBe('member-id');
+
+		const query = execute.mock.calls[0]?.[0];
+		const compiled = new PgDialect().sqlToQuery(query!);
+		expect(compiled.sql).toContain('update member_permissions');
+		expect(compiled.sql).toContain('from "user"');
+		expect(compiled.sql).toContain("'admin' = any(string_to_array");
+		expect(compiled.sql).toContain('updated_at = now()');
+		expect(compiled.params).toContain('member-id');
+		expect(compiled.params).toContain(true);
+		expect(compiled.params).toContain(false);
+	});
+
+	it('returns null for an owner or missing capability record', async () => {
+		const database = {
+			execute: vi.fn().mockResolvedValue({ rows: [] }),
+		} as unknown as Database;
+
+		await expect(
+			updateMemberPermissions(database, { ...permissions, userId: 'owner-id' }),
+		).resolves.toBeNull();
 	});
 });

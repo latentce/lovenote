@@ -1,6 +1,6 @@
 import { asc, eq, sql } from 'drizzle-orm';
 
-import type { NewMemberPermissions } from '../lib/member';
+import type { NewMemberPermissions, UpdateMemberPermissionsInput } from '../lib/member';
 import { MAX_MEMBER_ACCOUNTS } from '../lib/member';
 import { user } from './auth-schema';
 import type { Database } from './client';
@@ -87,6 +87,36 @@ export async function addMemberPermissions(
 		from eligible_user
 		on conflict (user_id) do nothing
 		returning user_id as "userId"
+	`);
+
+	return result.rows[0]?.userId ?? null;
+}
+
+export async function updateMemberPermissions(
+	database: Database,
+	input: UpdateMemberPermissionsInput,
+) {
+	const result = await database.execute<{ userId: string }>(sql`
+		update member_permissions
+		set
+			create_posts = ${input.createPosts},
+			edit_own_posts = ${input.editOwnPosts},
+			hide_own_posts = ${input.hideOwnPosts},
+			delete_own_posts = ${input.deleteOwnPosts},
+			upload_images = ${input.uploadImages},
+			upload_videos = ${input.uploadVideos},
+			create_comments = ${input.createComments},
+			favorite_posts = ${input.favoritePosts},
+			manage_tags = ${input.manageTags},
+			moderate_comments = ${input.moderateComments},
+			updated_at = now()
+		from "user"
+		where member_permissions.user_id = ${input.userId}
+			and "user".id = member_permissions.user_id
+			and not (
+				'admin' = any(string_to_array(coalesce("user".role, ''), ','))
+			)
+		returning member_permissions.user_id as "userId"
 	`);
 
 	return result.rows[0]?.userId ?? null;

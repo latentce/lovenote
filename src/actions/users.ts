@@ -3,7 +3,11 @@ import { ActionError, defineAction } from 'astro:actions';
 import { isAPIError } from 'better-auth/api';
 
 import { user } from '../db/auth-schema';
-import { addMemberPermissions, countMembers } from '../db/member-admin';
+import {
+	addMemberPermissions,
+	countMembers,
+	updateMemberPermissions,
+} from '../db/member-admin';
 import type { Auth } from '../lib/auth';
 import { AuthorizationError, requireOwner } from '../lib/authorization';
 import { createInternalEmail } from '../lib/internal-email';
@@ -11,6 +15,7 @@ import {
 	createMemberInputSchema,
 	MAX_MEMBER_ACCOUNTS,
 	type NewMemberPermissions,
+	updateMemberPermissionsInputSchema,
 } from '../lib/member';
 
 function authorizeUserManagement(locals: App.Locals) {
@@ -168,6 +173,32 @@ export const userActions = {
 				}),
 			);
 			return { created: true, userId, username };
+		},
+	}),
+	updatePermissions: defineAction({
+		accept: 'form',
+		input: updateMemberPermissionsInputSchema,
+		handler: async (input, { locals }) => {
+			const owner = authorizeUserManagement(locals);
+			const updatedUserId = await updateMemberPermissions(locals.database, input);
+
+			if (!updatedUserId) {
+				throw new ActionError({
+					code: 'NOT_FOUND',
+					message: 'This member is unavailable or cannot have owner capabilities changed.',
+				});
+			}
+
+			console.info(
+				JSON.stringify({
+					enabledCapabilityCount: Object.values(input).filter((value) => value === true).length,
+					event: 'owner.member_permissions_updated',
+					ownerId: owner.id,
+					userId: updatedUserId,
+				}),
+			);
+
+			return { updated: true, userId: updatedUserId };
 		},
 	}),
 };

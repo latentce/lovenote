@@ -7,6 +7,19 @@ const formCheckboxSchema = z.preprocess(
 	z.boolean(),
 );
 
+const permissionInputShape = {
+	createPosts: formCheckboxSchema,
+	editOwnPosts: formCheckboxSchema,
+	hideOwnPosts: formCheckboxSchema,
+	deleteOwnPosts: formCheckboxSchema,
+	uploadImages: formCheckboxSchema,
+	uploadVideos: formCheckboxSchema,
+	createComments: formCheckboxSchema,
+	favoritePosts: formCheckboxSchema,
+	manageTags: formCheckboxSchema,
+	moderateComments: formCheckboxSchema,
+};
+
 export const createMemberInputSchema = z
 	.object({
 		username: z
@@ -20,24 +33,21 @@ export const createMemberInputSchema = z
 			.min(12, 'Password must be at least 12 characters.')
 			.max(128, 'Password must be at most 128 characters.'),
 		confirmPassword: z.string(),
-		createPosts: formCheckboxSchema,
-		editOwnPosts: formCheckboxSchema,
-		hideOwnPosts: formCheckboxSchema,
-		deleteOwnPosts: formCheckboxSchema,
-		uploadImages: formCheckboxSchema,
-		uploadVideos: formCheckboxSchema,
-		createComments: formCheckboxSchema,
-		favoritePosts: formCheckboxSchema,
-		manageTags: formCheckboxSchema,
-		moderateComments: formCheckboxSchema,
+		...permissionInputShape,
 	})
 	.refine(({ confirmPassword, password }) => confirmPassword === password, {
 		message: 'Passwords do not match.',
 		path: ['confirmPassword'],
 	});
 
+export const updateMemberPermissionsInputSchema = z.object({
+	userId: z.string().min(1).max(128),
+	...permissionInputShape,
+});
+
 export type CreateMemberInput = z.infer<typeof createMemberInputSchema>;
 export type NewMemberPermissions = Omit<
 	CreateMemberInput,
 	'confirmPassword' | 'password' | 'username'
 >;
+export type UpdateMemberPermissionsInput = z.infer<typeof updateMemberPermissionsInputSchema>;

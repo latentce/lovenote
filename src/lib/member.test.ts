@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { createMemberInputSchema, MAX_MEMBER_ACCOUNTS } from './member';
+import {
+	createMemberInputSchema,
+	MAX_MEMBER_ACCOUNTS,
+	updateMemberPermissionsInputSchema,
+} from './member';
 
 const validMember = {
 	confirmPassword: 'temporary-password',
@@ -47,5 +51,21 @@ describe('member creation input', () => {
 
 	it('caps the closed group at five accounts', () => {
 		expect(MAX_MEMBER_ACCOUNTS).toBe(5);
+	});
+
+	it('parses a complete capability replacement from an HTML form', () => {
+		expect(
+			updateMemberPermissionsInputSchema.parse({
+				createComments: 'on',
+				manageTags: 'on',
+				userId: 'member-id',
+			}),
+		).toMatchObject({
+			createComments: true,
+			createPosts: false,
+			manageTags: true,
+			moderateComments: false,
+			userId: 'member-id',
+		});
 	});
 });
