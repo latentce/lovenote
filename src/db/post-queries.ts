@@ -7,6 +7,7 @@ import type { Database } from './client';
 import { comments, favorites, mediaAssets, posts } from './schema';
 
 export const PUBLIC_POST_PAGE_SIZE = 20;
+export const AUTHOR_POST_LIMIT = 50;
 
 export function afterPostCursor(cursor: PostCursor | null): SQL | undefined {
 	if (!cursor) {
@@ -194,6 +195,32 @@ export async function listPrivatePosts(
 }
 
 export type PrivatePostSummary = Awaited<ReturnType<typeof listPrivatePosts>>['items'][number];
+
+export function buildOwnPostsQuery(
+	database: Pick<Database, 'query'>,
+	authorId: string,
+	limit = AUTHOR_POST_LIMIT,
+) {
+	return database.query.posts.findMany({
+		columns: {
+			body: true,
+			createdAt: true,
+			id: true,
+			status: true,
+			updatedAt: true,
+			visibility: true,
+		},
+		limit,
+		orderBy: [desc(posts.createdAt), desc(posts.id)],
+		where: eq(posts.authorId, authorId),
+	});
+}
+
+export async function listOwnPosts(database: Database, authorId: string) {
+	return buildOwnPostsQuery(database, authorId);
+}
+
+export type OwnPostSummary = Awaited<ReturnType<typeof listOwnPosts>>[number];
 
 export function buildPostDetailQuery(
 	database: Pick<Database, 'query'>,

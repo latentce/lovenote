@@ -6,6 +6,7 @@ import {
 	createPostInputSchema,
 	decodePostCursor,
 	encodePostCursor,
+	postLifecycleInputSchema,
 	tokenizePostBody,
 } from './post';
 
@@ -100,6 +101,16 @@ describe('post visibility', () => {
 		};
 		expect(canViewPost(deletingPost, author)).toBe(false);
 		expect(canViewPost(deletingPost, owner)).toBe(false);
+	});
+});
+
+describe('post lifecycle input', () => {
+	it('coerces a form post ID to a positive integer', () => {
+		expect(postLifecycleInputSchema.parse({ postId: '42' })).toEqual({ postId: 42 });
+	});
+
+	it.each(['', '0', '-1', '1.5', 'not-a-post'])('rejects invalid post ID %j', (postId) => {
+		expect(postLifecycleInputSchema.safeParse({ postId }).success).toBe(false);
 	});
 });
 

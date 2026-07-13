@@ -1,6 +1,7 @@
 ---
 import { actions, isInputError } from 'astro:actions';
 
+import { listOwnPosts } from '../db/post-queries';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { hasCapability } from '../lib/authorization';
 import {
@@ -19,8 +20,12 @@ if (!Astro.locals.user) {
 }
 
 const result = Astro.getActionResult(actions.posts.create);
+const hideResult = Astro.getActionResult(actions.postLifecycle.hide);
+const restoreResult = Astro.getActionResult(actions.postLifecycle.restore);
+const lifecycleResult = hideResult ?? restoreResult;
 const inputErrors = isInputError(result?.error) ? result.error.fields : {};
 const canCreatePosts = hasCapability(Astro.locals, 'createPosts');
+const canHideOwnPosts = hasCapability(Astro.locals, 'hideOwnPosts');
 const canUploadImages = hasCapability(Astro.locals, 'uploadImages');
 const canUploadVideos = hasCapability(Astro.locals, 'uploadVideos');
 const allowedMediaTypes = SUPPORTED_MEDIA_TYPES.filter((mimeType) =>
@@ -32,6 +37,22 @@ const allowedMediaLabel = canUploadImages && canUploadVideos
 	: canUploadImages
 		? 'images'
 		: 'videos';
+const ownPosts = await listOwnPosts(Astro.locals.database, Astro.locals.user.id);
+const lifecycleSuccess = lifecycleResult?.data?.cachePurged
+	? `Post #${lifecycleResult.data.postId} is now ${lifecycleResult.data.status}.`
+	: null;
+const lifecycleCacheWarning = lifecycleResult?.data?.cachePurged === false
+	? lifecycleResult.data
+	: null;
+const lifecycleError = lifecycleResult?.error
+	? isInputError(lifecycleResult.error)
+		? 'The post request was invalid.'
+		: lifecycleResult.error.message
+	: null;
+const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
+	dateStyle: 'medium',
+	timeZone: 'UTC',
+}).format(date);
 ---
 
 <BaseLayout title="Manage posts · LoveNote">
@@ -138,6 +159,71 @@ const allowedMediaLabel = canUploadImages && canUploadVideos
 				</button>
 			</form>
 		)}
+
+		<section class="mt-14 border-t border-stone-200 pt-10" aria-labelledby="your-posts-heading">
+			<p class="text-sm font-semibold tracking-[0.16em] text-rosewood uppercase">Published by you</p>
+			<h2 id="your-posts-heading" class="mt-2 text-3xl font-semibold tracking-tight text-stone-950">Your posts</h2>
+			<p class="mt-3 text-stone-600">Your 50 most recent posts, including posts hidden from everyone except you and the owner.</p>
+
+			{lifecycleSuccess && (
+				<p class="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900" role="status">{lifecycleSuccess}</p>
+			)}
+			{lifecycleError && (
+				<p class="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900" role="alert">{lifecycleError}</p>
+			)}
+			{lifecycleCacheWarning && (
+				<div class="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950" role="alert">
+					<p>Post #{lifecycleCacheWarning.postId} changed status, but its cached copies could not be cleared.</p>
+					<form
+						method="POST"
+						action={lifecycleCacheWarning.status === 'hidden' ? actions.postLifecycle.hide : actions.postLifecycle.restore}
+						class="mt-3"
+					>
+						<input type="hidden" name="postId" value={lifecycleCacheWarning.postId} />
+						<button type="submit" class="rounded-xl border border-amber-400 bg-white px-4 py-2 text-sm font-semibold hover:bg-amber-100">Retry cache purge</button>
+					</form>
+				</div>
+			)}
+
+			{ownPosts.length === 0 ? (
+				<p class="mt-7 rounded-3xl border border-dashed border-stone-300 bg-white p-8 text-center text-stone-600">You have not published any posts yet.</p>
+			) : (
+				<ol class="mt-7 space-y-4">
+					{ownPosts.map((post) => (
+						<li class="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+							<div class="flex flex-wrap items-start justify-between gap-4">
+								<div>
+									<a href={`/posts/${post.id}`} class="font-semibold text-rosewood hover:text-rose-800">Post #{post.id}</a>
+									<p class="mt-1 text-sm text-stone-500">{formatDate(post.createdAt)} · {post.visibility}</p>
+								</div>
+								<span class:list={[
+									'rounded-full px-3 py-1 text-xs font-semibold tracking-wide uppercase',
+									post.status === 'active' ? 'bg-emerald-50 text-emerald-800' :
+										post.status === 'hidden' ? 'bg-amber-100 text-amber-900' : 'bg-stone-200 text-stone-700',
+								]}>{post.status}</span>
+							</div>
+
+							<p class="mt-4 line-clamp-3 leading-7 text-stone-700">
+								{post.body.trim().replace(/\s+/gu, ' ').slice(0, 240) || 'Media-only post'}
+							</p>
+
+							{canHideOwnPosts && post.status !== 'deleting' && (
+								<form
+									method="POST"
+									action={post.status === 'hidden' ? actions.postLifecycle.restore : actions.postLifecycle.hide}
+									class="mt-5"
+								>
+									<input type="hidden" name="postId" value={post.id} />
+									<button type="submit" class="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-800 hover:border-stone-400 hover:bg-stone-50">
+										{post.status === 'hidden' ? 'Restore post' : 'Hide post'}
+									</button>
+								</form>
+							)}
+						</li>
+					))}
+				</ol>
+			)}
+		</section>
 	</main>
 </BaseLayout>
 

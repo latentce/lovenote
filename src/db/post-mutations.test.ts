@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
 import type { Database } from './client';
-import { createPost } from './post-mutations';
+import { createPost, setOwnPostStatus, type PostLifecycleResult } from './post-mutations';
 
 function databaseReturning(rows: { id: number }[]) {
 	const execute = vi.fn().mockResolvedValue({ rows });
@@ -57,5 +57,68 @@ describe('post creation mutation', () => {
 		expect(compiledQuery.sql).not.toContain(body);
 		expect(compiledQuery.params).toContain('author-id');
 		expect(compiledQuery.params).toContain(body);
+	});
+});
+
+describe('post lifecycle mutations', () => {
+	function lifecycleDatabase(rows: PostLifecycleResult[]) {
+		const execute = vi.fn().mockResolvedValue({ rows });
+		return { database: { execute } as unknown as Database, execute };
+	}
+
+	it('atomically hides only an owned active post and rotates its media URLs', async () => {
+		const expected: PostLifecycleResult = {
+			changed: true,
+			id: 42,
+			media: [{ id: '3df91f2d-582c-4d2a-b24d-c42d2ed58f7d', previousRevision: 1 }],
+			tagIds: [3, 7],
+			visibility: 'public',
+		};
+		const { database, execute } = lifecycleDatabase([expected]);
+
+		await expect(setOwnPostStatus(database, 'author-id', 42, 'hidden')).resolves.toEqual(expected);
+
+		const query = execute.mock.calls[0]?.[0];
+		const compiled = new PgDialect().sqlToQuery(query!);
+		expect(compiled.sql).toContain('posts.author_id = $');
+		expect(compiled.sql).toContain('for update of posts');
+		expect(compiled.sql).toContain('delivery_revision = media_assets.delivery_revision + 1');
+		expect(compiled.sql).toContain('media_to_purge');
+		expect(compiled.params).toContain('author-id');
+		expect(compiled.params).toContain(42);
+		expect(compiled.params).toContain('hidden');
+	});
+
+	it('restores an owned hidden post without rotating media URLs', async () => {
+		const expected: PostLifecycleResult = {
+			changed: true,
+			id: 42,
+			media: [],
+			tagIds: [],
+			visibility: 'private',
+		};
+		const { database, execute } = lifecycleDatabase([expected]);
+
+		await expect(setOwnPostStatus(database, 'author-id', 42, 'active')).resolves.toEqual(expected);
+
+		const query = execute.mock.calls[0]?.[0];
+		const compiled = new PgDialect().sqlToQuery(query!);
+		expect(compiled.params).toContain('active');
+		expect(compiled.params).toContain('hidden');
+	});
+
+	it('is retryable for an already hidden post and rejects unavailable targets', async () => {
+		const alreadyHidden: PostLifecycleResult = {
+			changed: false,
+			id: 42,
+			media: [{ id: '3df91f2d-582c-4d2a-b24d-c42d2ed58f7d', previousRevision: 1 }],
+			tagIds: [],
+			visibility: 'public',
+		};
+		const retry = lifecycleDatabase([alreadyHidden]);
+		const unavailable = lifecycleDatabase([]);
+
+		await expect(setOwnPostStatus(retry.database, 'author-id', 42, 'hidden')).resolves.toEqual(alreadyHidden);
+		await expect(setOwnPostStatus(unavailable.database, 'author-id', 42, 'hidden')).resolves.toBeNull();
 	});
 });

@@ -1,7 +1,15 @@
 import { sql } from 'drizzle-orm';
 
-import type { CreatePostInput } from '../lib/post';
+import type { CreatePostInput, PostStatus } from '../lib/post';
 import type { Database } from './client';
+
+export type PostLifecycleResult = {
+	changed: boolean;
+	id: number;
+	media: Array<{ id: string; previousRevision: number }>;
+	tagIds: number[];
+	visibility: 'public' | 'private';
+};
 
 function requestedAssetsQuery(attachmentIds: string[]) {
 	if (attachmentIds.length === 0) {
@@ -66,4 +74,78 @@ export async function createPost(database: Database, authorId: string, input: Cr
 	`);
 
 	return result.rows[0]?.id ?? null;
+}
+
+export async function setOwnPostStatus(
+	database: Database,
+	authorId: string,
+	postId: number,
+	nextStatus: Extract<PostStatus, 'active' | 'hidden'>,
+): Promise<PostLifecycleResult | null> {
+	const previousStatus = nextStatus === 'hidden' ? 'active' : 'hidden';
+	const result = await database.execute<PostLifecycleResult>(sql`
+		with target_post as materialized (
+			select posts.id, posts.status, posts.visibility
+			from posts
+			where posts.id = ${postId}
+				and posts.author_id = ${authorId}
+				and posts.status in (${previousStatus}, ${nextStatus})
+			for update of posts
+		), changed_post as (
+			update posts
+			set status = ${nextStatus}, updated_at = now()
+			from target_post
+			where posts.id = target_post.id
+				and target_post.status = ${previousStatus}
+			returning posts.id
+		), rotated_media as (
+			update media_assets
+			set
+				delivery_revision = media_assets.delivery_revision + 1,
+				updated_at = now()
+			from changed_post
+			where media_assets.post_id = changed_post.id
+				and ${nextStatus} = 'hidden'
+			returning
+				media_assets.id,
+				media_assets.delivery_revision - 1 as previous_revision
+		), media_to_purge as (
+			select rotated_media.id, rotated_media.previous_revision
+			from rotated_media
+			union all
+			select media_assets.id, greatest(media_assets.delivery_revision - 1, 1)
+			from media_assets
+			inner join target_post on target_post.id = media_assets.post_id
+			where target_post.status = 'hidden'
+				and ${nextStatus} = 'hidden'
+		), affected_tags as (
+			select post_tags.tag_id
+			from post_tags
+			inner join target_post on target_post.id = post_tags.post_id
+		)
+		select
+			target_post.id,
+			target_post.status = ${previousStatus} as changed,
+			target_post.visibility,
+			coalesce(
+				(
+					select jsonb_agg(
+						jsonb_build_object(
+							'id', media_to_purge.id,
+							'previousRevision', media_to_purge.previous_revision
+						)
+						order by media_to_purge.id
+					)
+					from media_to_purge
+				),
+				'[]'::jsonb
+			) as media,
+			coalesce(
+				(select array_agg(affected_tags.tag_id order by affected_tags.tag_id) from affected_tags),
+				'{}'::integer[]
+			) as tag_ids
+		from target_post
+	`);
+
+	return result.rows[0] ?? null;
 }

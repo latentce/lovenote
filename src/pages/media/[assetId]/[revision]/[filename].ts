@@ -105,6 +105,14 @@ async function deliverMedia(context: APIContext, headOnly: boolean) {
 		}
 
 		const cacheControl = mediaCacheControl(media);
+		if (media.status === 'active' && media.visibility === 'public') {
+			context.cache.set({
+				maxAge: 31_536_000,
+				tags: [`media:${media.id}:${media.deliveryRevision}`],
+			});
+		} else {
+			context.cache.set(false);
+		}
 		const etag = httpEtag(media.etag);
 		const headers = responseHeaders(media, cacheControl);
 		const precondition = evaluateMediaPreconditions(

@@ -8,6 +8,10 @@ export const MAX_POST_ATTACHMENTS = 4;
 
 export const postVisibilitySchema = z.enum(['public', 'private']);
 
+export const postLifecycleInputSchema = z.object({
+	postId: z.coerce.number().int().positive(),
+});
+
 const postBodySchema = z.preprocess(
 	(value) => (value === null ? '' : value),
 	z
@@ -41,6 +45,7 @@ export const createPostInputSchema = z
 	});
 
 export type CreatePostInput = z.infer<typeof createPostInputSchema>;
+export type PostLifecycleInput = z.infer<typeof postLifecycleInputSchema>;
 export type PostVisibility = z.infer<typeof postVisibilitySchema>;
 export type PostStatus = 'active' | 'hidden' | 'deleting';
 

@@ -6,6 +6,7 @@ import {
 	buildPostDetailQuery,
 	buildPrivatePostsQuery,
 	buildPublicPostsQuery,
+	buildOwnPostsQuery,
 } from './post-queries';
 import { schema } from './client';
 
@@ -109,5 +110,18 @@ describe('post detail query', () => {
 		expect(query.sql).toContain('"posts"."status" <> $');
 		expect(query.params).toContain('deleting');
 		expect(query.params).not.toContain('public');
+	});
+});
+
+describe('author post management query', () => {
+	it('lists only the current author’s posts without loading media keys', () => {
+		const database = drizzle.mock({ schema });
+		const query = buildOwnPostsQuery(database, 'author-id').toSQL();
+
+		expect(query.sql).toContain('"posts"."author_id" = $');
+		expect(query.sql).not.toContain('object_key');
+		expect(query.sql).not.toContain('media_assets');
+		expect(query.params).toContain('author-id');
+		expect(query.params).toContain(50);
 	});
 });
