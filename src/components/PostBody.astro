@@ -12,7 +12,7 @@ const tokens = tokenizePostBody(body);
 <p class="whitespace-pre-wrap break-words">{
 	tokens.map((token) =>
 		token.kind === 'link' ? (
-			<a class="underline" href={token.href} rel="nofollow ugc">
+			<a class="font-medium text-rosewood underline decoration-rose-300 underline-offset-2 hover:text-rose-800" href={token.href} rel="nofollow ugc">
 				{token.text}
 			</a>
 		) : (

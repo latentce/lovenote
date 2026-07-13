@@ -1,0 +1,35 @@
+---
+import type { PublicPostSummary } from '../db/post-queries';
+import MediaGallery from './MediaGallery.astro';
+import PostBody from './PostBody.astro';
+
+interface Props {
+	eagerFirstMedia?: boolean;
+	post: PublicPostSummary;
+}
+
+const { eagerFirstMedia = false, post } = Astro.props;
+const publishedDate = new Intl.DateTimeFormat('en-US', {
+	dateStyle: 'medium',
+	timeZone: 'UTC',
+}).format(post.createdAt);
+---
+
+<article class="overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-sm">
+	<header class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-4 sm:px-7">
+		<p class="font-semibold text-stone-950">{post.authorUsername}</p>
+		<time datetime={post.createdAt.toISOString()} class="text-sm text-stone-500">{publishedDate}</time>
+	</header>
+
+	{post.media.length > 0 && (
+		<div class="px-2 sm:px-3">
+			<MediaGallery media={post.media} eagerFirst={eagerFirstMedia} />
+		</div>
+	)}
+
+	{post.body.length > 0 && (
+		<div class="px-5 py-5 leading-7 text-stone-800 sm:px-7 sm:py-6">
+			<PostBody body={post.body} />
+		</div>
+	)}
+</article>

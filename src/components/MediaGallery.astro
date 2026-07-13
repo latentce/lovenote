@@ -1,0 +1,40 @@
+---
+import type { PostMediaSummary } from '../db/post-queries';
+import { mediaDeliveryUrl } from '../lib/media-delivery';
+
+interface Props {
+	eagerFirst?: boolean;
+	media: PostMediaSummary[];
+}
+
+const { eagerFirst = false, media } = Astro.props;
+---
+
+<div class:list={['grid gap-2 overflow-hidden rounded-2xl bg-stone-100', { 'sm:grid-cols-2': media.length > 1 }]}>
+	{media.map((asset, index) => (
+		<figure class="flex min-h-40 items-center justify-center overflow-hidden bg-stone-100">
+			{asset.kind === 'image' ? (
+				<img
+					src={mediaDeliveryUrl(asset)}
+					alt={asset.altText}
+					width={asset.width ?? undefined}
+					height={asset.height ?? undefined}
+					loading={eagerFirst && index === 0 ? 'eager' : 'lazy'}
+					decoding="async"
+					class="max-h-[42rem] w-full object-contain"
+				/>
+			) : (
+				<video
+					src={mediaDeliveryUrl(asset)}
+					width={asset.width ?? undefined}
+					height={asset.height ?? undefined}
+					preload="metadata"
+					controls
+					playsinline
+					aria-label={asset.altText || asset.originalFilename}
+					class="max-h-[42rem] w-full bg-black object-contain"
+				></video>
+			)}
+		</figure>
+	))}
+</div>
