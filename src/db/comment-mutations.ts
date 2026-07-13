@@ -2,17 +2,7 @@ import { sql } from 'drizzle-orm';
 
 import type { CreateCommentInput } from '../lib/comment';
 import type { Database } from './client';
-
-function visibleTargetFilter(authorId: string, owner: boolean) {
-	if (owner) {
-		return sql`posts.status <> 'deleting'`;
-	}
-
-	return sql`(
-		posts.status = 'active'
-		or (posts.status = 'hidden' and posts.author_id = ${authorId})
-	)`;
-}
+import { visiblePostMutationFilter } from './mutation-filters';
 
 export async function createComment(
 	database: Database,
@@ -25,7 +15,7 @@ export async function createComment(
 			select posts.id
 			from posts
 			where posts.id = ${input.postId}
-				and ${visibleTargetFilter(authorId, owner)}
+				and ${visiblePostMutationFilter(authorId, owner)}
 		), inserted_comment as (
 			insert into comments (post_id, author_id, body)
 			select target_post.id, ${authorId}, ${input.body}

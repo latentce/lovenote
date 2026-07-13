@@ -1,0 +1,28 @@
+---
+import { actions } from 'astro:actions';
+
+interface Props {
+	errorMessage?: string | null;
+	favorited?: boolean | null;
+	postId: number;
+	successMessage?: string | null;
+}
+
+const { errorMessage, favorited = null, postId, successMessage } = Astro.props;
+const buttonLabel = favorited === true
+	? 'Remove favorite'
+	: favorited === false
+		? 'Favorite this post'
+		: 'Toggle favorite';
+---
+
+<div class="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+	{successMessage && <p class="mb-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900" role="status">{successMessage}</p>}
+	{errorMessage && <p class="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-900" role="alert">{errorMessage}</p>}
+	<form method="POST" action={actions.favorites.toggle}>
+		<input type="hidden" name="postId" value={postId} />
+		<button type="submit" class="rounded-xl border border-rosewood px-5 py-3 font-semibold text-rosewood transition hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-300 focus:ring-offset-2">
+			{buttonLabel}
+		</button>
+	</form>
+</div>

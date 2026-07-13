@@ -2,9 +2,10 @@
 import { actions, isInputError } from 'astro:actions';
 
 import CommentComposer from '../../components/CommentComposer.astro';
-import CommentControls from '../../components/CommentControls.astro';
+import FavoriteForm from '../../components/FavoriteForm.astro';
 import PostBody from '../../components/PostBody.astro';
 import PostCard from '../../components/PostCard.astro';
+import PostControls from '../../components/PostControls.astro';
 import { findPostDetail } from '../../db/post-queries';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 
@@ -38,6 +39,17 @@ const commentSuccess = Boolean(
 );
 const commentError = commentResult?.error && !isInputError(commentResult.error)
 	? commentResult.error.message
+	: null;
+const favoriteResult = Astro.getActionResult(actions.favorites.toggle);
+const favoriteSuccess = post && favoriteResult?.data?.postId === post.id
+	? favoriteResult.data.favorited
+		? 'Added to favorites.'
+		: 'Removed from favorites.'
+	: null;
+const favoriteError = favoriteResult?.error
+	? isInputError(favoriteResult.error)
+		? 'The favorite request was invalid.'
+		: favoriteResult.error.message
 	: null;
 const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 	dateStyle: 'medium',
@@ -91,14 +103,21 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 					</div>
 
 					<div class="mt-5">
-						<CommentControls
+						<PostControls
 							server:defer
 							postId={post.id}
 							bodyErrors={commentInputErrors.body}
-							errorMessage={commentError}
-							success={commentSuccess}
+							commentError={commentError}
+							commentSuccess={commentSuccess}
+							favoriteError={favoriteError}
+							favoriteSuccess={favoriteSuccess}
 						>
-							<div slot="fallback">
+							<div slot="fallback" class="space-y-5">
+								<FavoriteForm
+									postId={post.id}
+									errorMessage={favoriteError}
+									successMessage={favoriteSuccess}
+								/>
 								<CommentComposer
 									postId={post.id}
 									bodyErrors={commentInputErrors.body}
@@ -106,7 +125,7 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat('en-US', {
 									success={commentSuccess}
 								/>
 							</div>
-						</CommentControls>
+						</PostControls>
 					</div>
 
 					{post.comments.length === 0 ? (
