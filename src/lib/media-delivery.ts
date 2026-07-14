@@ -3,6 +3,15 @@ import { canViewPost, type PostStatus, type PostVisibility } from './post';
 
 export const PUBLIC_MEDIA_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 export const PRIVATE_MEDIA_CACHE_CONTROL = 'private, no-store';
+export const MEDIA_RESPONSE_VARY = [
+	'If-Match',
+	'If-Modified-Since',
+	'If-None-Match',
+	'If-Range',
+	'If-Unmodified-Since',
+	'Range',
+].join(', ');
+const MEDIA_VARIANT_REQUEST_HEADERS = MEDIA_RESPONSE_VARY.split(', ');
 
 export interface DeliverableMedia {
 	authorId: string;
@@ -50,6 +59,19 @@ export function mediaCacheControl(media: Pick<DeliverableMedia, 'status' | 'visi
 	return media.status === 'active' && media.visibility === 'public'
 		? PUBLIC_MEDIA_CACHE_CONTROL
 		: PRIVATE_MEDIA_CACHE_CONTROL;
+}
+
+export function canCacheMediaRequest(
+	media: Pick<DeliverableMedia, 'status' | 'visibility'>,
+	request: Request,
+	headOnly: boolean,
+) {
+	return (
+		!headOnly &&
+		media.status === 'active' &&
+		media.visibility === 'public' &&
+		MEDIA_VARIANT_REQUEST_HEADERS.every((header) => !request.headers.has(header))
+	);
 }
 
 export function httpEtag(etag: string) {

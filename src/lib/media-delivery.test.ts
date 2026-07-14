@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { AuthenticatedUser } from './auth';
 import {
+	canCacheMediaRequest,
 	canDeliverMedia,
 	evaluateMediaPreconditions,
 	httpEtag,
@@ -9,6 +10,7 @@ import {
 	mediaCacheControl,
 	mediaDeliveryUrl,
 	mediaRouteMatches,
+	MEDIA_RESPONSE_VARY,
 	parseMediaRange,
 	PRIVATE_MEDIA_CACHE_CONTROL,
 	PUBLIC_MEDIA_CACHE_CONTROL,
@@ -84,6 +86,30 @@ describe('media delivery visibility and URLs', () => {
 		expect(canDeliverMedia(hiddenMedia, owner)).toBe(true);
 		expect(mediaCacheControl(hiddenMedia)).toBe(PRIVATE_MEDIA_CACHE_CONTROL);
 		expect(canDeliverMedia({ ...media, status: 'deleting' }, owner)).toBe(false);
+	});
+});
+
+describe('media response caching', () => {
+	it('caches only unconditional full public GET responses', () => {
+		expect(canCacheMediaRequest(media, new Request('https://example.com/media'), false)).toBe(true);
+		expect(canCacheMediaRequest(media, new Request('https://example.com/media'), true)).toBe(false);
+		expect(
+			canCacheMediaRequest(
+				{ ...media, visibility: 'private' },
+				new Request('https://example.com/media'),
+				false,
+			),
+		).toBe(false);
+	});
+
+	it.each(MEDIA_RESPONSE_VARY.split(', '))('does not cache requests with %s', (header) => {
+		expect(
+			canCacheMediaRequest(
+				media,
+				new Request('https://example.com/media', { headers: { [header]: 'test' } }),
+				false,
+			),
+		).toBe(false);
 	});
 });
 

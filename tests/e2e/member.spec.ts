@@ -6,6 +6,10 @@ import {
 	test,
 } from '@playwright/test';
 import { AwsClient } from 'aws4fetch';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
+
+import { createDatabase } from '../../src/db/client';
+import { mediaAssets } from '../../src/db/schema';
 
 const memberUsername = process.env.E2E_MEMBER_USERNAME;
 const memberPassword = process.env.E2E_MEMBER_PASSWORD;
@@ -18,7 +22,7 @@ type StorageState = Awaited<ReturnType<BrowserContext['storageState']>>;
 let memberState: StorageState | undefined;
 let ownerState: StorageState | undefined;
 
-async function r2ObjectStatus(assetId: string) {
+function r2Configuration() {
 	const accessKeyId = process.env.R2_ACCESS_KEY_ID;
 	const accountId = process.env.R2_ACCOUNT_ID;
 	const bucketName = process.env.R2_BUCKET_NAME;
@@ -27,12 +31,93 @@ async function r2ObjectStatus(assetId: string) {
 		throw new Error('R2 acceptance credentials are not configured.');
 	}
 
+	return { accessKeyId, accountId, bucketName, secretAccessKey };
+}
+
+async function r2ObjectRequest(objectKey: string, method: 'DELETE' | 'HEAD') {
+	const { accessKeyId, accountId, bucketName, secretAccessKey } = r2Configuration();
 	const client = new AwsClient({ accessKeyId, region: 'auto', secretAccessKey, service: 's3' });
 	const url = new URL(
-		`https://${accountId}.r2.cloudflarestorage.com/${encodeURIComponent(bucketName)}/uploads/${assetId}`,
+		`https://${accountId}.r2.cloudflarestorage.com/${encodeURIComponent(bucketName)}/${objectKey}`,
 	);
-	const request = await client.sign(new Request(url, { method: 'HEAD' }));
-	return (await fetch(request)).status;
+	return fetch(await client.sign(new Request(url, { method })));
+}
+
+async function r2ObjectStatus(assetId: string) {
+	return (await r2ObjectRequest(`uploads/${assetId}`, 'HEAD')).status;
+}
+
+async function cleanupUnattachedAssets(assetIds: string[]) {
+	const databaseUrl = process.env.DATABASE_URL;
+	if (!databaseUrl || assetIds.length === 0) return;
+
+	const database = createDatabase(databaseUrl);
+	const uploads = await database
+		.select({ id: mediaAssets.id, objectKey: mediaAssets.objectKey })
+		.from(mediaAssets)
+		.where(and(inArray(mediaAssets.id, assetIds), isNull(mediaAssets.postId)));
+
+	for (const upload of uploads) {
+		const response = await r2ObjectRequest(upload.objectKey, 'DELETE');
+		if (!response.ok) throw new Error(`R2 cleanup failed with status ${response.status}.`);
+	}
+
+	if (uploads.length > 0) {
+		await database.delete(mediaAssets).where(
+			and(inArray(mediaAssets.id, uploads.map((upload) => upload.id)), isNull(mediaAssets.postId)),
+		);
+	}
+}
+
+async function expireUnattachedAsset(assetId: string) {
+	const databaseUrl = process.env.DATABASE_URL;
+	if (!databaseUrl) throw new Error('The acceptance database is not configured.');
+	const database = createDatabase(databaseUrl);
+	await database
+		.update(mediaAssets)
+		.set({ expiresAt: new Date('2000-01-01T00:00:00.000Z') })
+		.where(and(eq(mediaAssets.id, assetId), isNull(mediaAssets.postId)));
+}
+
+async function unattachedAssetExists(assetId: string) {
+	const databaseUrl = process.env.DATABASE_URL;
+	if (!databaseUrl) throw new Error('The acceptance database is not configured.');
+	const database = createDatabase(databaseUrl);
+	const rows = await database
+		.select({ id: mediaAssets.id })
+		.from(mediaAssets)
+		.where(and(eq(mediaAssets.id, assetId), isNull(mediaAssets.postId)))
+		.limit(1);
+	return rows.length === 1;
+}
+
+async function generatedWebm(page: Page) {
+	const bytes = await page.evaluate(async () => {
+		const canvas = document.createElement('canvas');
+		canvas.width = 16;
+		canvas.height = 16;
+		const drawingContext = canvas.getContext('2d');
+		if (!drawingContext) throw new Error('Canvas recording is unavailable.');
+		const stream = canvas.captureStream(10);
+		const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' });
+		const chunks: Blob[] = [];
+		recorder.addEventListener('dataavailable', (event) => chunks.push(event.data));
+		const stopped = new Promise<void>((resolve) => recorder.addEventListener('stop', () => resolve()));
+		recorder.start();
+
+		for (let frame = 0; frame < 10; frame += 1) {
+			drawingContext.fillStyle = frame % 2 === 0 ? '#be123c' : '#1d4ed8';
+			drawingContext.fillRect(0, 0, canvas.width, canvas.height);
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+
+		recorder.stop();
+		await stopped;
+		stream.getTracks().forEach((track) => track.stop());
+		return Array.from(new Uint8Array(await new Blob(chunks, { type: 'video/webm' }).arrayBuffer()));
+	});
+
+	return Buffer.from(bytes);
 }
 
 async function authenticatedState(
@@ -232,6 +317,7 @@ test('private R2 media supports secure conditional and range delivery', async ({
 		await expect(page.getByText('All attachments are ready. You can publish the post.')).toBeVisible({
 			timeout: 30_000,
 		});
+		assetId = await page.locator('input[name="attachmentIds"]').inputValue();
 		await page.locator('textarea[name="body"]').fill(body);
 		await page.locator('select[name="visibility"]').selectOption('private');
 		await page.getByRole('button', { name: 'Publish post' }).click();
@@ -246,7 +332,7 @@ test('private R2 media supports secure conditional and range delivery', async ({
 		expect(mediaUrl).toBeTruthy();
 		const route = new URL(mediaUrl!, baseURL).pathname;
 		const routeParts = route.split('/');
-		assetId = routeParts[2];
+		expect(routeParts[2]).toBe(assetId);
 		expect(assetId).toMatch(/^[0-9a-f-]{36}$/u);
 		expect(await r2ObjectStatus(assetId!)).toBe(200);
 
@@ -302,7 +388,144 @@ test('private R2 media supports secure conditional and range delivery', async ({
 		expect(await r2ObjectStatus(assetId!)).toBe(404);
 	} finally {
 		if (postCreated) await deletePost(page, body);
+		if (!postCreated && assetId) await cleanupUnattachedAssets([assetId]);
 		await context.close();
+	}
+});
+
+test('mixed image and video attachments preserve order and public delivery', async ({
+	baseURL,
+	browser,
+	request,
+}) => {
+	test.skip(
+		!memberUsername || !memberPassword || !mutationsEnabled || !uploadsEnabled,
+		'Enable uploads only against disposable Neon and R2 resources.',
+	);
+	const context = await browser.newContext({ baseURL, storageState: memberState! });
+	const page = await context.newPage();
+	const body = `E2E mixed-media post ${Date.now()}`;
+	const image = Buffer.from(
+		'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+		'base64',
+	);
+	let assetIds: string[] = [];
+	let postCreated = false;
+
+	try {
+		await page.goto('/manage');
+		const video = await generatedWebm(page);
+		await page.locator('#media-files').setInputFiles([
+			{ buffer: image, mimeType: 'image/png', name: 'first.png' },
+			{ buffer: video, mimeType: 'video/webm', name: 'second.webm' },
+		]);
+		await expect(page.getByText('Files validated. Add alt text, then upload them.')).toBeVisible();
+		await page.getByLabel('Alt text (optional)').nth(0).fill('First acceptance image');
+		await page.getByLabel('Alt text (optional)').nth(1).fill('Second acceptance video');
+		await page.getByRole('button', { name: 'Upload selected files' }).click();
+		await expect(page.getByText('All attachments are ready. You can publish the post.')).toBeVisible({
+			timeout: 30_000,
+		});
+		assetIds = await page.locator('input[name="attachmentIds"]').evaluateAll((inputs) =>
+			inputs.map((input) => (input as HTMLInputElement).value),
+		);
+		expect(assetIds).toHaveLength(2);
+		await page.locator('textarea[name="body"]').fill(body);
+		await page.locator('select[name="visibility"]').selectOption('public');
+		await page.getByRole('button', { name: 'Publish post' }).click();
+		const creationMessage = page.getByText(/Post #\d+ was created/);
+		await expect(creationMessage).toBeVisible();
+		postCreated = true;
+		const postId = Number((await creationMessage.textContent())?.match(/Post #(\d+)/u)?.[1]);
+		expect(Number.isSafeInteger(postId)).toBe(true);
+
+		await page.goto(`/posts/${postId}`);
+		const media = page.locator('article').locator('img, video');
+		await expect(media).toHaveCount(2);
+		expect(await media.evaluateAll((elements) => elements.map((element) => element.tagName))).toEqual([
+			'IMG',
+			'VIDEO',
+		]);
+		await expect(media.nth(0)).toHaveAttribute('alt', 'First acceptance image');
+		await expect(media.nth(1)).toHaveAttribute('aria-label', 'Second acceptance video');
+		await expect(media.nth(1)).toHaveAttribute('preload', 'metadata');
+
+		const routes = await media.evaluateAll((elements) =>
+			elements.map((element) => new URL((element as HTMLMediaElement).currentSrc || (element as HTMLMediaElement).src).pathname),
+		);
+		expect(routes).toHaveLength(2);
+		expect(routes[0]).toContain(assetIds[0]);
+		expect(routes[1]).toContain(assetIds[1]);
+
+		const imageResponse = await request.get(routes[0]!);
+		expect(imageResponse.status()).toBe(200);
+		expect(imageResponse.headers()['cache-control']).toBe('public, max-age=31536000, immutable');
+		expect(imageResponse.headers()['content-type']).toBe('image/png');
+		expect(await imageResponse.body()).toEqual(image);
+
+		const videoResponse = await request.get(routes[1]!, { headers: { Range: 'bytes=0-31' } });
+		expect(videoResponse.status()).toBe(206);
+		expect(videoResponse.headers()['cache-control']).toBe('public, max-age=31536000, immutable');
+		expect(videoResponse.headers()['content-range']).toBe(`bytes 0-31/${video.length}`);
+		expect(videoResponse.headers()['content-type']).toBe('video/webm');
+		expect(await videoResponse.body()).toEqual(video.subarray(0, 32));
+
+		await deletePost(page, body);
+		postCreated = false;
+		for (const [index, assetId] of assetIds.entries()) {
+			expect((await request.get(routes[index]!)).status()).toBe(404);
+			expect(await r2ObjectStatus(assetId)).toBe(404);
+		}
+	} finally {
+		if (postCreated) await deletePost(page, body);
+		if (!postCreated) await cleanupUnattachedAssets(assetIds);
+		await context.close();
+	}
+});
+
+test('the owner can clean up an expired unattached R2 upload', async ({ baseURL, browser }) => {
+	test.skip(
+		!memberUsername || !memberPassword || !ownerUsername || !ownerPassword || !mutationsEnabled || !uploadsEnabled,
+		'Enable uploads only against disposable Neon and R2 resources.',
+	);
+	const memberContext = await browser.newContext({ baseURL, storageState: memberState! });
+	const ownerContext = await browser.newContext({ baseURL, storageState: ownerState! });
+	const memberPage = await memberContext.newPage();
+	const ownerPage = await ownerContext.newPage();
+	const image = Buffer.from(
+		'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+		'base64',
+	);
+	let assetId: string | undefined;
+
+	try {
+		await memberPage.goto('/manage');
+		await memberPage.locator('#media-files').setInputFiles({
+			buffer: image,
+			mimeType: 'image/png',
+			name: 'abandoned.png',
+		});
+		await expect(memberPage.getByText('Files validated. Add alt text, then upload them.')).toBeVisible();
+		await memberPage.getByRole('button', { name: 'Upload selected files' }).click();
+		await expect(memberPage.getByText('All attachments are ready. You can publish the post.')).toBeVisible({
+			timeout: 30_000,
+		});
+		assetId = await memberPage.locator('input[name="attachmentIds"]').inputValue();
+		expect(await r2ObjectStatus(assetId)).toBe(200);
+		expect(await unattachedAssetExists(assetId)).toBe(true);
+		await expireUnattachedAsset(assetId);
+
+		await ownerPage.goto('/owner/posts');
+		await ownerPage.locator('input[name="confirmation"][value="cleanup"]').check();
+		await ownerPage.getByRole('button', { name: 'Run cleanup' }).click();
+		await expect(ownerPage.getByRole('status').filter({ hasText: /Removed 1 of 1 expired uploads found\./u })).toBeVisible();
+		expect(await r2ObjectStatus(assetId)).toBe(404);
+		expect(await unattachedAssetExists(assetId)).toBe(false);
+		assetId = undefined;
+	} finally {
+		if (assetId) await cleanupUnattachedAssets([assetId]);
+		await memberContext.close();
+		await ownerContext.close();
 	}
 });
 

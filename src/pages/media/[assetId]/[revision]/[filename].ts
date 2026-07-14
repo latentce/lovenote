@@ -3,12 +3,14 @@ import { env } from 'cloudflare:workers';
 
 import { findMediaForDelivery } from '../../../../db/media-queries';
 import {
+	canCacheMediaRequest,
 	canDeliverMedia,
 	evaluateMediaPreconditions,
 	httpEtag,
 	ifRangeAllowsRange,
 	mediaCacheControl,
 	mediaRouteMatches,
+	MEDIA_RESPONSE_VARY,
 	parseMediaRange,
 	type DeliverableMedia,
 	type MediaRangeResult,
@@ -47,6 +49,7 @@ function responseHeaders(media: DeliverableMedia, cacheControl: string) {
 		'Content-Type': media.mimeType,
 		ETag: httpEtag(media.etag),
 		'Last-Modified': media.updatedAt.toUTCString(),
+		Vary: MEDIA_RESPONSE_VARY,
 		'X-Content-Type-Options': 'nosniff',
 	});
 }
@@ -105,7 +108,7 @@ async function deliverMedia(context: APIContext, headOnly: boolean) {
 		}
 
 		const cacheControl = mediaCacheControl(media);
-		if (media.status === 'active' && media.visibility === 'public') {
+		if (canCacheMediaRequest(media, context.request, headOnly)) {
 			context.cache.set({
 				maxAge: 31_536_000,
 				tags: [`media:${media.id}:${media.deliveryRevision}`],
