@@ -5,6 +5,7 @@ import {
 	type Page,
 	test,
 } from '@playwright/test';
+import { AwsClient } from 'aws4fetch';
 
 const memberUsername = process.env.E2E_MEMBER_USERNAME;
 const memberPassword = process.env.E2E_MEMBER_PASSWORD;
@@ -16,6 +17,23 @@ type StorageState = Awaited<ReturnType<BrowserContext['storageState']>>;
 
 let memberState: StorageState | undefined;
 let ownerState: StorageState | undefined;
+
+async function r2ObjectStatus(assetId: string) {
+	const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+	const accountId = process.env.R2_ACCOUNT_ID;
+	const bucketName = process.env.R2_BUCKET_NAME;
+	const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+	if (!accessKeyId || !accountId || !bucketName || !secretAccessKey) {
+		throw new Error('R2 acceptance credentials are not configured.');
+	}
+
+	const client = new AwsClient({ accessKeyId, region: 'auto', secretAccessKey, service: 's3' });
+	const url = new URL(
+		`https://${accountId}.r2.cloudflarestorage.com/${encodeURIComponent(bucketName)}/uploads/${assetId}`,
+	);
+	const request = await client.sign(new Request(url, { method: 'HEAD' }));
+	return (await fetch(request)).status;
+}
 
 async function authenticatedState(
 	browser: Browser,
@@ -182,7 +200,11 @@ test('public post interactions and lifecycle changes remain consistent', async (
 	await context.close();
 });
 
-test('a browser can upload directly to R2 and attach the verified asset', async ({ baseURL, browser }) => {
+test('private R2 media supports secure conditional and range delivery', async ({
+	baseURL,
+	browser,
+	request,
+}) => {
 	test.skip(
 		!memberUsername || !memberPassword || !mutationsEnabled || !uploadsEnabled,
 		'Enable uploads only against disposable Neon and R2 resources.',
@@ -195,30 +217,93 @@ test('a browser can upload directly to R2 and attach the verified asset', async 
 		'base64',
 	);
 
-	await page.goto('/manage');
-	await page.locator('#media-files').setInputFiles({
-		buffer: onePixelPng,
-		mimeType: 'image/png',
-		name: 'acceptance.png',
-	});
-	await expect(page.getByText('Files validated. Add alt text, then upload them.')).toBeVisible();
-	await page.getByRole('button', { name: 'Upload selected files' }).click();
-	await expect(page.getByText('All attachments are ready. You can publish the post.')).toBeVisible({
-		timeout: 30_000,
-	});
-	await page.locator('textarea[name="body"]').fill(body);
-	await page.locator('select[name="visibility"]').selectOption('private');
-	await Promise.all([
-		page.waitForURL('**/manage'),
-		page.getByRole('button', { name: 'Publish post' }).click(),
-	]);
-	await expect(page.getByText(/Post #\d+ was created/)).toBeVisible();
+	let assetId: string | undefined;
+	let postCreated = false;
 
-	await page.goto('/private');
-	const post = page.locator('article').filter({ hasText: body }).first();
-	await expect(post.locator('img')).toBeVisible();
-	await deletePost(page, body);
-	await context.close();
+	try {
+		await page.goto('/manage');
+		await page.locator('#media-files').setInputFiles({
+			buffer: onePixelPng,
+			mimeType: 'image/png',
+			name: 'acceptance.png',
+		});
+		await expect(page.getByText('Files validated. Add alt text, then upload them.')).toBeVisible();
+		await page.getByRole('button', { name: 'Upload selected files' }).click();
+		await expect(page.getByText('All attachments are ready. You can publish the post.')).toBeVisible({
+			timeout: 30_000,
+		});
+		await page.locator('textarea[name="body"]').fill(body);
+		await page.locator('select[name="visibility"]').selectOption('private');
+		await page.getByRole('button', { name: 'Publish post' }).click();
+		await expect(page.getByText(/Post #\d+ was created/)).toBeVisible();
+		postCreated = true;
+
+		await page.goto('/private');
+		const post = page.locator('article').filter({ hasText: body }).first();
+		const image = post.locator('img');
+		await expect(image).toBeVisible();
+		const mediaUrl = await image.getAttribute('src');
+		expect(mediaUrl).toBeTruthy();
+		const route = new URL(mediaUrl!, baseURL).pathname;
+		const routeParts = route.split('/');
+		assetId = routeParts[2];
+		expect(assetId).toMatch(/^[0-9a-f-]{36}$/u);
+		expect(await r2ObjectStatus(assetId!)).toBe(200);
+
+		const anonymousResponse = await request.get(route);
+		expect(anonymousResponse.status()).toBe(404);
+		expect(anonymousResponse.headers()['cache-control']).toBe('private, no-store');
+
+		const headResponse = await context.request.head(route);
+		expect(headResponse.status()).toBe(200);
+		expect(headResponse.headers()['accept-ranges']).toBe('bytes');
+		expect(headResponse.headers()['cache-control']).toBe('private, no-store');
+		expect(headResponse.headers()['content-length']).toBe(String(onePixelPng.length));
+		expect(headResponse.headers()['content-type']).toBe('image/png');
+		expect(headResponse.headers()['x-content-type-options']).toBe('nosniff');
+		expect(await headResponse.body()).toHaveLength(0);
+		const etag = headResponse.headers().etag;
+		expect(etag).toMatch(/^".+"$/u);
+
+		const rangeResponse = await context.request.get(route, { headers: { Range: 'bytes=0-7' } });
+		expect(rangeResponse.status()).toBe(206);
+		expect(rangeResponse.headers()['content-length']).toBe('8');
+		expect(rangeResponse.headers()['content-range']).toBe(`bytes 0-7/${onePixelPng.length}`);
+		expect(await rangeResponse.body()).toEqual(onePixelPng.subarray(0, 8));
+
+		const unchangedResponse = await context.request.get(route, {
+			headers: { 'If-None-Match': etag! },
+		});
+		expect(unchangedResponse.status()).toBe(304);
+		expect(await unchangedResponse.body()).toHaveLength(0);
+
+		const changedResponse = await context.request.get(route, {
+			headers: { 'If-Match': '"different"' },
+		});
+		expect(changedResponse.status()).toBe(412);
+		expect(changedResponse.headers()['cache-control']).toBe('private, no-store');
+
+		const unsatisfiableResponse = await context.request.get(route, {
+			headers: { Range: `bytes=${onePixelPng.length}-` },
+		});
+		expect(unsatisfiableResponse.status()).toBe(416);
+		expect(unsatisfiableResponse.headers()['content-range']).toBe(`bytes */${onePixelPng.length}`);
+
+		const wrongRevision = [...routeParts];
+		wrongRevision[3] = String(Number(wrongRevision[3]) + 1);
+		expect((await context.request.get(wrongRevision.join('/'))).status()).toBe(404);
+		const wrongFilename = [...routeParts];
+		wrongFilename[4] = 'different.png';
+		expect((await context.request.get(wrongFilename.join('/'))).status()).toBe(404);
+
+		await deletePost(page, body);
+		postCreated = false;
+		expect((await context.request.get(route)).status()).toBe(404);
+		expect(await r2ObjectStatus(assetId!)).toBe(404);
+	} finally {
+		if (postCreated) await deletePost(page, body);
+		await context.close();
+	}
 });
 
 test('the owner can hide, restore, and permanently delete a member comment', async ({

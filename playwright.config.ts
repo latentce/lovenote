@@ -25,7 +25,7 @@ export default defineConfig({
 		? undefined
 		: {
 				command: 'LOVENOTE_ACCEPTANCE=1 pnpm preview --host 127.0.0.1 --port 4321',
-				reuseExistingServer: !process.env.CI,
+				reuseExistingServer: false,
 				stderr: 'pipe',
 				stdout: 'pipe',
 				timeout: 120_000,
