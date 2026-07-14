@@ -706,6 +706,74 @@ test('capability revocation takes effect for an existing member session', async 
 	}
 });
 
+test('owner session revocation and bans invalidate active member sessions', async ({ baseURL, browser }) => {
+	test.skip(
+		!memberUsername || !memberPassword || !ownerUsername || !ownerPassword || !mutationsEnabled,
+		'Enable mutations with dedicated E2E owner and member accounts.',
+	);
+	const revokedMemberContext = await browser.newContext({ baseURL, storageState: memberState! });
+	const ownerContext = await browser.newContext({ baseURL, storageState: ownerState! });
+	const revokedMemberPage = await revokedMemberContext.newPage();
+	const ownerPage = await ownerContext.newPage();
+	let freshMemberContext: BrowserContext | undefined;
+	let accountIsBanned = false;
+
+	const memberItem = () =>
+		ownerPage
+			.locator('li')
+			.filter({ has: ownerPage.getByText(`@${memberUsername}`, { exact: true }) })
+			.first();
+
+	try {
+		await ownerPage.goto('/owner/users');
+		let item = memberItem();
+		await expect(item).toBeVisible();
+		await item.getByText('Revoke all sessions', { exact: true }).click();
+		await item.locator('input[name="confirmation"][value="revoke"]').check();
+		await item.getByRole('button', { name: 'Revoke sessions' }).click();
+		await expect(
+			ownerPage.getByRole('status').filter({
+				hasText: `All active sessions for @${memberUsername} were revoked.`,
+			}),
+		).toBeVisible();
+
+		await revokedMemberPage.goto('/private');
+		await expect(revokedMemberPage).toHaveURL(/\/login$/u);
+
+		const freshState = await authenticatedState(browser, baseURL!, memberUsername!, memberPassword!);
+		freshMemberContext = await browser.newContext({ baseURL, storageState: freshState });
+		const freshMemberPage = await freshMemberContext.newPage();
+		await freshMemberPage.goto('/private');
+		await expect(freshMemberPage).toHaveURL(/\/private$/u);
+
+		await ownerPage.goto('/owner/users');
+		item = memberItem();
+		await item.locator('summary').filter({ hasText: 'Ban member' }).click();
+		await item.locator('input[name="confirmation"][value="ban"]').check();
+		await item.getByRole('button', { name: 'Ban member' }).click();
+		accountIsBanned = true;
+		await expect(ownerPage.getByRole('status').filter({ hasText: `@${memberUsername} is now banned.` })).toBeVisible();
+
+		await freshMemberPage.goto('/private');
+		await expect(freshMemberPage).toHaveURL(/\/login$/u);
+
+		await ownerPage.goto('/owner/users');
+		item = memberItem();
+		await item.getByRole('button', { name: 'Restore account access' }).click();
+		accountIsBanned = false;
+		await expect(ownerPage.getByRole('status').filter({ hasText: `@${memberUsername} is now active.` })).toBeVisible();
+	} finally {
+		if (accountIsBanned) {
+			await ownerPage.goto('/owner/users');
+			const restoreButton = memberItem().getByRole('button', { name: 'Restore account access' });
+			if (await restoreButton.isVisible()) await restoreButton.click();
+		}
+		await freshMemberContext?.close();
+		await revokedMemberContext.close();
+		await ownerContext.close();
+	}
+});
+
 test('the sole owner can reach every owner console', async ({ baseURL, browser }) => {
 	test.skip(!ownerUsername || !ownerPassword, 'Set dedicated E2E owner credentials to run this test.');
 	const context = await browser.newContext({ baseURL, storageState: ownerState! });
