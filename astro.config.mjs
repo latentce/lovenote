@@ -41,7 +41,6 @@ export default defineConfig({
 			],
 			scriptDirective: {
 				resources: ["'self'"],
-				strictDynamic: true,
 			},
 			styleDirective: {
 				resources: ["'self'"],
