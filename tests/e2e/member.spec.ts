@@ -59,6 +59,27 @@ async function deletePost(page: Page, body: string) {
 	await expect(page.getByText(/was permanently deleted/)).toBeVisible();
 }
 
+async function setMemberCreatePosts(page: Page, username: string, enabled: boolean) {
+	await page.goto('/owner/users');
+	const item = page.locator('li').filter({ has: page.getByText(`@${username}`, { exact: true }) }).first();
+	await expect(item).toBeVisible();
+	await item.getByText('Edit capabilities', { exact: true }).click();
+	const checkbox = item.getByLabel('Create posts', { exact: true });
+	const wasEnabled = await checkbox.isChecked();
+
+	if (wasEnabled !== enabled) {
+		if (enabled) {
+			await checkbox.check();
+		} else {
+			await checkbox.uncheck();
+		}
+		await item.getByRole('button', { name: 'Save capabilities' }).click();
+		await expect(page.getByRole('status').filter({ hasText: /Capabilities for @.+ were updated\./u })).toBeVisible();
+	}
+
+	return wasEnabled;
+}
+
 test('an active member can browse private pages', async ({ baseURL, browser }) => {
 	test.skip(!memberUsername || !memberPassword, 'Set dedicated E2E member credentials to run this test.');
 	const context = await browser.newContext({ baseURL, storageState: memberState! });
@@ -198,6 +219,96 @@ test('a browser can upload directly to R2 and attach the verified asset', async 
 	await expect(post.locator('img')).toBeVisible();
 	await deletePost(page, body);
 	await context.close();
+});
+
+test('the owner can hide, restore, and permanently delete a member comment', async ({
+	baseURL,
+	browser,
+}) => {
+	test.skip(
+		!memberUsername || !memberPassword || !ownerUsername || !ownerPassword || !mutationsEnabled,
+		'Enable mutations with dedicated E2E owner and member accounts.',
+	);
+	const memberContext = await browser.newContext({ baseURL, storageState: memberState! });
+	const ownerContext = await browser.newContext({ baseURL, storageState: ownerState! });
+	const memberPage = await memberContext.newPage();
+	const ownerPage = await ownerContext.newPage();
+	const body = `E2E moderated-comment post ${Date.now()}`;
+	const comment = `E2E owner moderation comment ${Date.now()}`;
+	let postCreated = false;
+
+	try {
+		await memberPage.goto('/manage');
+		await memberPage.locator('textarea[name="body"]').fill(body);
+		await memberPage.locator('select[name="visibility"]').selectOption('public');
+		await memberPage.getByRole('button', { name: 'Publish post' }).click();
+		const creationMessage = memberPage.getByText(/Post #\d+ was created/);
+		await expect(creationMessage).toBeVisible();
+		postCreated = true;
+		const postId = Number((await creationMessage.textContent())?.match(/Post #(\d+)/u)?.[1]);
+		expect(Number.isSafeInteger(postId)).toBe(true);
+
+		await memberPage.goto(`/posts/${postId}`);
+		await memberPage.getByLabel('Add a comment').fill(comment);
+		await memberPage.getByRole('button', { name: 'Post comment' }).click();
+		await expect(memberPage.getByText(comment, { exact: true })).toBeVisible();
+
+		await ownerPage.goto('/owner/comments');
+		let item = ownerPage.locator('li').filter({ hasText: comment }).first();
+		await expect(item).toBeVisible();
+		await item.getByRole('button', { name: 'Hide comment' }).click();
+		await expect(ownerPage.getByRole('status').filter({ hasText: /was hidden\./u })).toBeVisible();
+
+		await memberPage.goto(`/posts/${postId}`);
+		await expect(memberPage.getByText(comment, { exact: true })).toHaveCount(0);
+
+		await ownerPage.goto('/owner/comments');
+		item = ownerPage.locator('li').filter({ hasText: comment }).first();
+		await item.getByRole('button', { name: 'Restore comment' }).click();
+		await expect(ownerPage.getByRole('status').filter({ hasText: /was restored\./u })).toBeVisible();
+
+		await memberPage.goto(`/posts/${postId}`);
+		await expect(memberPage.getByText(comment, { exact: true })).toBeVisible();
+
+		await ownerPage.goto('/owner/comments');
+		item = ownerPage.locator('li').filter({ hasText: comment }).first();
+		await item.getByText('Permanently delete', { exact: true }).click();
+		await item.locator('input[name="confirmation"]').check();
+		await item.getByRole('button', { name: 'Delete comment' }).click();
+		await expect(ownerPage.getByRole('status').filter({ hasText: /was deleted\./u })).toBeVisible();
+
+		await memberPage.goto(`/posts/${postId}`);
+		await expect(memberPage.getByText(comment, { exact: true })).toHaveCount(0);
+	} finally {
+		if (postCreated) await deletePost(memberPage, body);
+		await memberContext.close();
+		await ownerContext.close();
+	}
+});
+
+test('capability revocation takes effect for an existing member session', async ({ baseURL, browser }) => {
+	test.skip(
+		!memberUsername || !memberPassword || !ownerUsername || !ownerPassword || !mutationsEnabled,
+		'Enable mutations with dedicated E2E owner and member accounts.',
+	);
+	const memberContext = await browser.newContext({ baseURL, storageState: memberState! });
+	const ownerContext = await browser.newContext({ baseURL, storageState: ownerState! });
+	const memberPage = await memberContext.newPage();
+	const ownerPage = await ownerContext.newPage();
+	let capabilityWasEnabled = false;
+
+	try {
+		capabilityWasEnabled = await setMemberCreatePosts(ownerPage, memberUsername!, false);
+		expect(capabilityWasEnabled).toBe(true);
+
+		await memberPage.goto('/manage');
+		await expect(memberPage.getByText(/cannot create posts with the current account permissions/u)).toBeVisible();
+		await expect(memberPage.getByRole('button', { name: 'Publish post' })).toHaveCount(0);
+	} finally {
+		if (capabilityWasEnabled) await setMemberCreatePosts(ownerPage, memberUsername!, true);
+		await memberContext.close();
+		await ownerContext.close();
+	}
 });
 
 test('the sole owner can reach every owner console', async ({ baseURL, browser }) => {

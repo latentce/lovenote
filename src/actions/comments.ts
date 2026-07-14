@@ -96,6 +96,7 @@ async function changeCommentStatus(
 	cache: ActionCache,
 ) {
 	const moderator = authorizeCommentModeration(locals);
+	const operation = nextStatus === 'hidden' ? 'hidden' : 'restored';
 	const comment = await setCommentStatus(
 		locals.database,
 		moderator.id,
@@ -111,7 +112,7 @@ async function changeCommentStatus(
 		});
 	}
 
-	const cachePurged = await purgeCommentPost(cache, comment.postId, nextStatus);
+	const cachePurged = await purgeCommentPost(cache, comment.postId, operation);
 	console.info(
 		JSON.stringify({
 			cachePurged,
@@ -127,7 +128,7 @@ async function changeCommentStatus(
 		cachePurged,
 		changed: comment.changed,
 		commentId: comment.id,
-		operation: nextStatus,
+		operation,
 		postId: comment.postId,
 	};
 }
