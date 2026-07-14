@@ -138,13 +138,30 @@ The command refuses to run when that URL is missing or matches `DATABASE_URL`, a
 before inserting fixtures if any application table is already populated. Delete the disposable
 branch after the run.
 
-For the local production-runtime smoke suite, prepare an isolated migrated Neon branch and development R2 bucket in `.dev.vars`, install Chromium once with `pnpm exec playwright install chromium`, then run:
+For the local production-runtime smoke suite, prepare an isolated migrated Neon branch and the
+`lovenote-media-test` R2 bucket in `.dev.vars`, install Chromium once with
+`pnpm exec playwright install chromium`, then run:
 
 ```sh
 pnpm test:acceptance
 ```
 
-Anonymous, JavaScript-disabled, access-control, media-probe, and security-header checks run by default. Optional member coverage uses `E2E_MEMBER_USERNAME` and `E2E_MEMBER_PASSWORD`; owner coverage uses `E2E_OWNER_USERNAME` and `E2E_OWNER_PASSWORD`. Set `E2E_MUTATIONS=1` only for a disposable member with a non-temporary password to exercise private text creation/deletion, and additionally set `E2E_UPLOADS=1` to exercise the real direct-R2 upload path. The mutation tests delete the posts they create. Set `E2E_BASE_URL` to test an already-running preview or deployment instead of starting local workerd.
+Playwright selects the named `acceptance` Wrangler environment automatically. Its `MEDIA_BUCKET`
+binding is remote and points only to `lovenote-media-test`; the top-level production binding remains
+separate. Local Wrangler must be authenticated, and the test bucket needs the CORS policy from
+`config/r2-cors.example.json`. Keep `R2_BUCKET_NAME` in `.dev.vars` set to
+`lovenote-media-test` so presigned uploads and binding-based verification use the same bucket.
+Acceptance preview uses Astro's in-memory cache provider because Cloudflare's remote-binding proxy
+does not expose deployed Workers' `cache.purge()` API. Production builds continue to use the
+Cloudflare CDN provider; cache-tag construction and purge failure behavior are covered by unit tests.
+
+Anonymous, JavaScript-disabled, access-control, media-probe, and security-header checks run by default.
+The local runner loads an ignored `.dev.vars` when it exists. Optional member coverage uses
+`E2E_MEMBER_USERNAME` and `E2E_MEMBER_PASSWORD`; owner coverage uses `E2E_OWNER_USERNAME` and
+`E2E_OWNER_PASSWORD`. Set `E2E_MUTATIONS=1` only for a disposable member with a non-temporary
+password to exercise private text creation/deletion, and additionally set `E2E_UPLOADS=1` to
+exercise the real direct-R2 upload path. The mutation tests delete the posts they create. Set
+`E2E_BASE_URL` to test an already-running preview or deployment instead of starting local workerd.
 
 For a production change:
 

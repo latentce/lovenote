@@ -1,4 +1,10 @@
+import { existsSync } from 'node:fs';
+
 import { defineConfig, devices } from '@playwright/test';
+
+if (existsSync('.dev.vars')) {
+	process.loadEnvFile('.dev.vars');
+}
 
 const externalBaseUrl = process.env.E2E_BASE_URL;
 const localBaseUrl = 'http://127.0.0.1:4321';
@@ -18,7 +24,7 @@ export default defineConfig({
 	webServer: externalBaseUrl
 		? undefined
 		: {
-				command: 'pnpm preview --host 127.0.0.1 --port 4321',
+				command: 'LOVENOTE_ACCEPTANCE=1 pnpm preview --host 127.0.0.1 --port 4321',
 				reuseExistingServer: !process.env.CI,
 				stderr: 'pipe',
 				stdout: 'pipe',

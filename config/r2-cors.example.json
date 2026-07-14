@@ -4,7 +4,8 @@
       "allowed": {
         "origins": [
           "https://lovenote.example.com",
-          "http://localhost:4321"
+          "http://localhost:4321",
+          "http://127.0.0.1:4321"
         ],
         "methods": ["PUT"],
         "headers": ["Content-Type", "If-None-Match"]

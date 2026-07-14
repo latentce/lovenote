@@ -6,6 +6,12 @@ R2_ACCESS_KEY_ID=replace-with-r2-access-key-id
 R2_SECRET_ACCESS_KEY=replace-with-r2-secret-access-key
 
 # Override the non-secret wrangler vars for local development.
-SITE_URL=http://localhost:4321
+SITE_URL=http://127.0.0.1:4321
 R2_ACCOUNT_ID=replace-with-cloudflare-account-id
-R2_BUCKET_NAME=lovenote-media
+R2_BUCKET_NAME=lovenote-media-test
+
+# Optional disposable accounts for authenticated Playwright coverage.
+E2E_MEMBER_USERNAME=
+E2E_MEMBER_PASSWORD=
+E2E_OWNER_USERNAME=
+E2E_OWNER_PASSWORD=

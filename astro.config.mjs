@@ -2,7 +2,9 @@
 import cloudflare from '@astrojs/cloudflare';
 import { cacheCloudflare } from '@astrojs/cloudflare/cache';
 import tailwindcss from '@tailwindcss/vite';
-import { defineConfig } from 'astro/config';
+import { defineConfig, memoryCache } from 'astro/config';
+
+const acceptanceRuntime = process.env.LOVENOTE_ACCEPTANCE === '1';
 
 // https://astro.build/config
 export default defineConfig({
@@ -11,7 +13,7 @@ export default defineConfig({
 		imageService: 'compile',
 	}),
 	cache: {
-		provider: cacheCloudflare(),
+		provider: acceptanceRuntime ? memoryCache() : cacheCloudflare(),
 	},
 	markdown: {
 		syntaxHighlight: false,

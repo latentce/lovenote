@@ -19,6 +19,36 @@
     "R2_ACCOUNT_ID": "replace-with-cloudflare-account-id",
     "R2_BUCKET_NAME": "lovenote-media"
   },
+  "env": {
+    "acceptance": {
+      "name": "lovenote-acceptance",
+      "assets": {
+        "directory": "./dist",
+        "binding": "ASSETS"
+      },
+      "r2_buckets": [
+        {
+          "binding": "MEDIA_BUCKET",
+          "bucket_name": "lovenote-media-test",
+          "remote": true
+        }
+      ],
+      "vars": {
+        "SITE_URL": "http://127.0.0.1:4321",
+        "R2_ACCOUNT_ID": "0de76f4cb5141aec57087740b58a590f",
+        "R2_BUCKET_NAME": "lovenote-media-test"
+      },
+      "secrets": {
+        "required": [
+          "DATABASE_URL",
+          "BETTER_AUTH_SECRET",
+          "SETUP_SECRET",
+          "R2_ACCESS_KEY_ID",
+          "R2_SECRET_ACCESS_KEY"
+        ]
+      }
+    }
+  },
   "secrets": {
     "required": [
       "DATABASE_URL",
