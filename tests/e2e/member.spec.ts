@@ -706,6 +706,77 @@ test('capability revocation takes effect for an existing member session', async 
 	}
 });
 
+test('the owner can moderate another author post across public caches', async ({ baseURL, browser }) => {
+	test.skip(
+		!memberUsername || !memberPassword || !ownerUsername || !ownerPassword || !mutationsEnabled,
+		'Enable mutations with dedicated E2E owner and member accounts.',
+	);
+	const body = `Owner post moderation ${Date.now()}`;
+	const memberContext = await browser.newContext({ baseURL, storageState: memberState! });
+	const ownerContext = await browser.newContext({ baseURL, storageState: ownerState! });
+	const publicContext = await browser.newContext({ baseURL });
+	const memberPage = await memberContext.newPage();
+	const ownerPage = await ownerContext.newPage();
+	const publicPage = await publicContext.newPage();
+	let postCreated = false;
+
+	try {
+		await memberPage.goto('/manage');
+		await memberPage.getByLabel('Post text').fill(body);
+		await memberPage.getByLabel('Visibility').selectOption('public');
+		await memberPage.getByRole('button', { name: 'Publish post' }).click();
+		const creationMessage = memberPage.getByText(/Post #\d+ was created/);
+		await expect(creationMessage).toBeVisible();
+		postCreated = true;
+		const postId = Number((await creationMessage.textContent())?.match(/Post #(\d+)/u)?.[1]);
+		expect(Number.isSafeInteger(postId)).toBe(true);
+
+		await publicPage.goto('/');
+		await expect(publicPage.getByText(body, { exact: true })).toBeVisible();
+		let response = await publicPage.goto(`/posts/${postId}`);
+		expect(response?.ok()).toBe(true);
+
+		await ownerPage.goto('/owner/posts');
+		let item = ownerPage.locator('li').filter({ hasText: body }).first();
+		await item.getByRole('button', { name: 'Hide post' }).click();
+		await expect(ownerPage.getByText(`Post #${postId} is now hidden.`)).toBeVisible();
+
+		response = await publicPage.goto(`/posts/${postId}`);
+		expect(response?.status()).toBe(404);
+		await publicPage.goto('/');
+		await expect(publicPage.getByText(body, { exact: true })).toHaveCount(0);
+		response = await memberPage.goto(`/posts/${postId}`);
+		expect(response?.ok()).toBe(true);
+		await expect(memberPage.getByText(body, { exact: true })).toBeVisible();
+
+		await ownerPage.goto('/owner/posts');
+		item = ownerPage.locator('li').filter({ hasText: body }).first();
+		await item.getByRole('button', { name: 'Restore post' }).click();
+		await expect(ownerPage.getByText(`Post #${postId} is now active.`)).toBeVisible();
+		response = await publicPage.goto(`/posts/${postId}`);
+		expect(response?.ok()).toBe(true);
+		await expect(publicPage.getByText(body, { exact: true })).toBeVisible();
+
+		await ownerPage.goto('/owner/posts');
+		item = ownerPage.locator('li').filter({ hasText: body }).first();
+		await item.getByText('Permanently delete', { exact: true }).click();
+		await item.locator('input[name="confirmation"][value="delete"]').check();
+		await item.getByRole('button', { name: 'Delete post' }).click();
+		await expect(ownerPage.getByText(`Post #${postId} was permanently deleted.`)).toBeVisible();
+		postCreated = false;
+
+		response = await publicPage.goto(`/posts/${postId}`);
+		expect(response?.status()).toBe(404);
+		await publicPage.goto('/');
+		await expect(publicPage.getByText(body, { exact: true })).toHaveCount(0);
+	} finally {
+		if (postCreated) await deletePost(memberPage, body);
+		await memberContext.close();
+		await ownerContext.close();
+		await publicContext.close();
+	}
+});
+
 test('tag metadata and merges invalidate every affected public page', async ({ baseURL, browser }) => {
 	test.skip(
 		!memberUsername || !memberPassword || !ownerUsername || !ownerPassword || !mutationsEnabled,
