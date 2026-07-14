@@ -9,7 +9,7 @@ import { AwsClient } from 'aws4fetch';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { createDatabase } from '../../src/db/client';
-import { mediaAssets } from '../../src/db/schema';
+import { mediaAssets, tags } from '../../src/db/schema';
 
 const memberUsername = process.env.E2E_MEMBER_USERNAME;
 const memberPassword = process.env.E2E_MEMBER_PASSWORD;
@@ -703,6 +703,115 @@ test('capability revocation takes effect for an existing member session', async 
 		if (capabilityWasEnabled) await setMemberCreatePosts(ownerPage, memberUsername!, true);
 		await memberContext.close();
 		await ownerContext.close();
+	}
+});
+
+test('tag metadata and merges invalidate every affected public page', async ({ baseURL, browser }) => {
+	test.skip(
+		!memberUsername || !memberPassword || !ownerUsername || !ownerPassword || !mutationsEnabled,
+		'Enable mutations with dedicated E2E owner and member accounts.',
+	);
+	const suffix = Date.now().toString(36);
+	const sourceName = `E2E Source ${suffix}`;
+	const sourceSlug = `e2e-source-${suffix}`;
+	const targetName = `E2E Target ${suffix}`;
+	const targetSlug = `e2e-target-${suffix}`;
+	const updatedName = `E2E Canonical ${suffix}`;
+	const updatedSlug = `e2e-canonical-${suffix}`;
+	const updatedDescription = `Canonical acceptance metadata ${suffix}.`;
+	const body = `Tag acceptance post ${suffix}`;
+	const memberContext = await browser.newContext({ baseURL, storageState: memberState! });
+	const ownerContext = await browser.newContext({ baseURL, storageState: ownerState! });
+	const publicContext = await browser.newContext({ baseURL });
+	const memberPage = await memberContext.newPage();
+	const ownerPage = await ownerContext.newPage();
+	const publicPage = await publicContext.newPage();
+	let postCreated = false;
+
+	async function createTag(displayName: string, slug: string) {
+		await ownerPage.goto('/owner/tags');
+		const section = ownerPage.locator('section').filter({
+			has: ownerPage.getByRole('heading', { name: 'Create tag' }),
+		});
+		await section.getByLabel('Display name').fill(displayName);
+		await section.getByLabel('URL slug').fill(slug);
+		await section.getByRole('button', { name: 'Create tag' }).click();
+		await expect(ownerPage.getByRole('status').filter({ hasText: `Tag #${slug} was created.` })).toBeVisible();
+	}
+
+	try {
+		await createTag(sourceName, sourceSlug);
+		await createTag(targetName, targetSlug);
+
+		await memberPage.goto('/manage');
+		await memberPage.getByLabel('Post text').fill(body);
+		await memberPage.getByLabel('Visibility').selectOption('public');
+		await memberPage.getByLabel(`#${sourceName}`, { exact: true }).check();
+		await memberPage.getByLabel(`#${targetName}`, { exact: true }).check();
+		await memberPage.getByRole('button', { name: 'Publish post' }).click();
+		const creationMessage = memberPage.getByText(/Post #\d+ was created/);
+		await expect(creationMessage).toBeVisible();
+		postCreated = true;
+		const postId = Number((await creationMessage.textContent())?.match(/Post #(\d+)/u)?.[1]);
+		expect(Number.isSafeInteger(postId)).toBe(true);
+
+		for (const path of ['/tags', `/tags/${sourceSlug}`, `/tags/${targetSlug}`, `/posts/${postId}`]) {
+			const response = await publicPage.goto(path);
+			expect(response?.ok()).toBe(true);
+		}
+
+		await ownerPage.goto('/owner/tags');
+		const targetItem = ownerPage.locator('li').filter({ hasText: `#${targetName}` }).first();
+		await targetItem.getByText('Edit metadata', { exact: true }).click();
+		await targetItem.getByLabel('Display name').fill(updatedName);
+		await targetItem.getByLabel('URL slug').fill(updatedSlug);
+		await targetItem.getByLabel('Description').fill(updatedDescription);
+		await targetItem.getByRole('button', { name: 'Save metadata' }).click();
+		await expect(ownerPage.getByRole('status').filter({ hasText: `Tag #${updatedSlug} was updated.` })).toBeVisible();
+
+		let response = await publicPage.goto(`/tags/${targetSlug}`);
+		expect(response?.status()).toBe(404);
+		response = await publicPage.goto(`/tags/${updatedSlug}`);
+		expect(response?.ok()).toBe(true);
+		await expect(publicPage.getByRole('heading', { name: `#${updatedName}` })).toBeVisible();
+		await expect(publicPage.getByText(updatedDescription, { exact: true })).toBeVisible();
+		await expect(publicPage.getByText(body, { exact: true })).toBeVisible();
+
+		await publicPage.goto('/tags');
+		await expect(publicPage.getByRole('heading', { name: `#${updatedName}` })).toBeVisible();
+		await expect(publicPage.getByRole('heading', { name: `#${targetName}` })).toHaveCount(0);
+
+		await ownerPage.goto('/owner/tags');
+		await ownerPage.getByLabel('Source tag').selectOption({ label: `#${sourceName}` });
+		await ownerPage.getByLabel('Target tag').selectOption({ label: `#${updatedName}` });
+		await ownerPage.locator('input[name="confirmation"][value="merge"]').check();
+		await ownerPage.getByRole('button', { name: 'Merge tags' }).click();
+		await expect(
+			ownerPage.getByRole('status').filter({
+				hasText: `Tag #${sourceSlug} was merged into #${updatedSlug}.`,
+			}),
+		).toBeVisible();
+
+		response = await publicPage.goto(`/tags/${sourceSlug}`);
+		expect(response?.status()).toBe(404);
+		await publicPage.goto(`/tags/${updatedSlug}`);
+		await expect(publicPage.getByText('1 public post', { exact: true })).toBeVisible();
+		await expect(publicPage.getByText(body, { exact: true })).toBeVisible();
+
+		await publicPage.goto(`/posts/${postId}`);
+		await expect(publicPage.getByRole('link', { name: `#${updatedName}` })).toBeVisible();
+		await expect(publicPage.getByRole('link', { name: `#${sourceName}` })).toHaveCount(0);
+	} finally {
+		if (postCreated) await deletePost(memberPage, body);
+		const databaseUrl = process.env.DATABASE_URL;
+		if (databaseUrl) {
+			await createDatabase(databaseUrl)
+				.delete(tags)
+				.where(inArray(tags.slug, [sourceSlug, targetSlug, updatedSlug]));
+		}
+		await memberContext.close();
+		await ownerContext.close();
+		await publicContext.close();
 	}
 });
 

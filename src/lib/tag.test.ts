@@ -24,6 +24,16 @@ describe('tag inputs', () => {
 		});
 	});
 
+	it('accepts an empty Astro form textarea as an empty description', () => {
+		expect(
+			createTagInputSchema.parse({
+				description: null,
+				displayName: 'Good News',
+				slug: 'good-news',
+			}),
+		).toEqual({ description: '', displayName: 'Good News', slug: 'good-news' });
+	});
+
 	it('enforces metadata limits and a non-empty slug', () => {
 		expect(
 			createTagInputSchema.safeParse({ description: '', displayName: '', slug: '' }).success,

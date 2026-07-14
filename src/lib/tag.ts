@@ -35,13 +35,16 @@ const slugSchema = z
 			.max(MAX_TAG_SLUG_LENGTH)
 			.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u, 'Use a URL-safe tag slug.'),
 	);
-const descriptionSchema = z
-	.string()
-	.trim()
-	.max(
-		MAX_TAG_DESCRIPTION_LENGTH,
-		`Tag descriptions must be ${MAX_TAG_DESCRIPTION_LENGTH.toLocaleString()} characters or less.`,
-	);
+const descriptionSchema = z.preprocess(
+	(value) => (value === null ? '' : value),
+	z
+		.string()
+		.trim()
+		.max(
+			MAX_TAG_DESCRIPTION_LENGTH,
+			`Tag descriptions must be ${MAX_TAG_DESCRIPTION_LENGTH.toLocaleString()} characters or less.`,
+		),
+);
 
 const tagMetadataShape = {
 	description: descriptionSchema,
