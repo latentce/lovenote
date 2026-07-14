@@ -98,6 +98,69 @@ test('text post creation and deletion work without JavaScript', async ({ baseURL
 	await context.close();
 });
 
+test('public post interactions and lifecycle changes remain consistent', async ({
+	baseURL,
+	browser,
+	request,
+}) => {
+	test.skip(!memberUsername || !memberPassword || !mutationsEnabled, 'Enable mutations with a disposable E2E member.');
+	const context = await browser.newContext({ baseURL, storageState: memberState! });
+	const page = await context.newPage();
+	const body = `E2E public lifecycle post ${Date.now()}`;
+	const comment = `E2E interaction comment ${Date.now()}`;
+
+	await page.goto('/manage');
+	await page.locator('textarea[name="body"]').fill(body);
+	await page.locator('select[name="visibility"]').selectOption('public');
+	await Promise.all([
+		page.waitForURL('**/manage'),
+		page.getByRole('button', { name: 'Publish post' }).click(),
+	]);
+	const creationMessage = page.getByText(/Post #\d+ was created/);
+	await expect(creationMessage).toBeVisible();
+	const postId = Number((await creationMessage.textContent())?.match(/Post #(\d+)/u)?.[1]);
+	expect(Number.isSafeInteger(postId)).toBe(true);
+
+	await page.goto(`/posts/${postId}`);
+	await page.getByRole('button', { name: 'Favorite this post' }).click();
+	await expect(page.getByRole('status').filter({ hasText: 'Added to favorites.' })).toBeVisible();
+	await expect(page.getByText('1 favorite', { exact: true })).toBeVisible();
+
+	await page.getByLabel('Add a comment').fill(comment);
+	await page.getByRole('button', { name: 'Post comment' }).click();
+	await expect(page.getByRole('status').filter({ hasText: 'Your comment was added.' })).toBeVisible();
+	await expect(page.getByText(comment, { exact: true })).toBeVisible();
+
+	await page.goto('/manage');
+	let item = page.locator('li').filter({ hasText: body }).first();
+	await Promise.all([
+		page.waitForURL('**/manage'),
+		item.getByRole('button', { name: 'Hide post' }).click(),
+	]);
+	await expect(page.getByText(`Post #${postId} is now hidden.`)).toBeVisible();
+
+	const hiddenResponse = await request.get(`/posts/${postId}`);
+	expect(hiddenResponse.status()).toBe(404);
+	await page.goto(`/posts/${postId}`);
+	await expect(page.getByText('Hidden', { exact: true })).toBeVisible();
+
+	await page.goto('/manage');
+	item = page.locator('li').filter({ hasText: body }).first();
+	await Promise.all([
+		page.waitForURL('**/manage'),
+		item.getByRole('button', { name: 'Restore post' }).click(),
+	]);
+	await expect(page.getByText(`Post #${postId} is now active.`)).toBeVisible();
+
+	const restoredResponse = await request.get(`/posts/${postId}`);
+	expect(restoredResponse.ok()).toBe(true);
+	expect(await restoredResponse.text()).toContain(body);
+
+	await deletePost(page, body);
+	expect((await request.get(`/posts/${postId}`)).status()).toBe(404);
+	await context.close();
+});
+
 test('a browser can upload directly to R2 and attach the verified asset', async ({ baseURL, browser }) => {
 	test.skip(
 		!memberUsername || !memberPassword || !mutationsEnabled || !uploadsEnabled,
