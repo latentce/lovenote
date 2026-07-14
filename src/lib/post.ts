@@ -38,7 +38,9 @@ function rejectDuplicateTags(tagIds: number[], context: z.core.$RefinementCtx) {
 export const editPostInputSchema = postLifecycleInputSchema
 	.extend({
 		body: postBodySchema,
-		purgePublic: z.literal('true').optional().transform((value) => value === 'true'),
+		purgePublic: z
+			.preprocess((value) => (value === null ? undefined : value), z.literal('true').optional())
+			.transform((value) => value === 'true'),
 		tagIds: postTagIdsSchema,
 		visibility: postVisibilitySchema,
 	})

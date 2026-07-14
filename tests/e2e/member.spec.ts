@@ -483,6 +483,93 @@ test('mixed image and video attachments preserve order and public delivery', asy
 	}
 });
 
+test('making a public media post private rotates and purges every public route', async ({
+	baseURL,
+	browser,
+	request,
+}) => {
+	test.skip(
+		!memberUsername || !memberPassword || !mutationsEnabled || !uploadsEnabled,
+		'Enable uploads only against disposable Neon and R2 resources.',
+	);
+	const context = await browser.newContext({ baseURL, storageState: memberState! });
+	const page = await context.newPage();
+	const body = `E2E visibility transition ${Date.now()}`;
+	const image = Buffer.from(
+		'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+		'base64',
+	);
+	let assetId: string | undefined;
+	let postCreated = false;
+
+	try {
+		await page.goto('/manage');
+		await page.locator('#media-files').setInputFiles({
+			buffer: image,
+			mimeType: 'image/png',
+			name: 'visibility.png',
+		});
+		await expect(page.getByText('Files validated. Add alt text, then upload them.')).toBeVisible();
+		await page.getByRole('button', { name: 'Upload selected files' }).click();
+		await expect(page.getByText('All attachments are ready. You can publish the post.')).toBeVisible({
+			timeout: 30_000,
+		});
+		assetId = await page.locator('input[name="attachmentIds"]').inputValue();
+		await page.locator('textarea[name="body"]').fill(body);
+		await page.locator('select[name="visibility"]').selectOption('public');
+		await page.getByRole('button', { name: 'Publish post' }).click();
+		const creationMessage = page.getByText(/Post #\d+ was created/);
+		await expect(creationMessage).toBeVisible();
+		postCreated = true;
+		const postId = Number((await creationMessage.textContent())?.match(/Post #(\d+)/u)?.[1]);
+		expect(Number.isSafeInteger(postId)).toBe(true);
+
+		const publicDetail = await request.get(`/posts/${postId}`);
+		expect(publicDetail.status()).toBe(200);
+		const detailHtml = await publicDetail.text();
+		expect(detailHtml).toContain(body);
+		const oldRoute = new RegExp(`(/media/${assetId}/1/visibility\\.png)`, 'u').exec(detailHtml)?.[1];
+		expect(oldRoute).toBeTruthy();
+		expect((await request.get(oldRoute!)).status()).toBe(200);
+		expect(await (await request.get('/')).text()).toContain(body);
+		expect(await (await request.get('/archive')).text()).toContain(`/posts/${postId}`);
+
+		await page.goto(`/manage/posts/${postId}`);
+		await page.locator('select[name="visibility"]').selectOption('private');
+		const [editResponse] = await Promise.all([
+			page.waitForResponse((response) => response.request().method() === 'POST'),
+			page.getByRole('button', { name: 'Save changes' }).click(),
+		]);
+		expect(editResponse.status()).toBe(200);
+		await expect(page.getByRole('status').filter({ hasText: 'Post saved.' })).toBeVisible();
+
+		expect((await request.get(`/posts/${postId}`)).status()).toBe(404);
+		expect((await request.get(oldRoute!)).status()).toBe(404);
+		expect(await (await request.get('/')).text()).not.toContain(body);
+		expect(await (await request.get('/archive')).text()).not.toContain(`/posts/${postId}`);
+
+		await page.goto(`/posts/${postId}`);
+		const newRoute = new URL((await page.locator('article img').getAttribute('src'))!, baseURL).pathname;
+		expect(newRoute).toContain(`/media/${assetId}/2/`);
+		const anonymousMedia = await request.get(newRoute);
+		expect(anonymousMedia.status()).toBe(404);
+		expect(anonymousMedia.headers()['cache-control']).toBe('private, no-store');
+		const memberMedia = await context.request.get(newRoute);
+		expect(memberMedia.status()).toBe(200);
+		expect(memberMedia.headers()['cache-control']).toBe('private, no-store');
+		expect(await memberMedia.body()).toEqual(image);
+		expect(await r2ObjectStatus(assetId)).toBe(200);
+
+		await deletePost(page, body);
+		postCreated = false;
+		expect(await r2ObjectStatus(assetId)).toBe(404);
+	} finally {
+		if (postCreated) await deletePost(page, body);
+		if (!postCreated && assetId) await cleanupUnattachedAssets([assetId]);
+		await context.close();
+	}
+});
+
 test('the owner can clean up an expired unattached R2 upload', async ({ baseURL, browser }) => {
 	test.skip(
 		!memberUsername || !memberPassword || !ownerUsername || !ownerPassword || !mutationsEnabled || !uploadsEnabled,

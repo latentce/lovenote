@@ -158,6 +158,7 @@ describe('post edit input', () => {
 
 	it('accepts only the internal public-purge retry marker', () => {
 		expect(editPostInputSchema.parse({ body: 'Post', postId: 42, purgePublic: 'true', visibility: 'private' }).purgePublic).toBe(true);
+		expect(editPostInputSchema.parse({ body: 'Post', postId: 42, purgePublic: null, visibility: 'private' }).purgePublic).toBe(false);
 		expect(editPostInputSchema.safeParse({ body: 'Post', postId: 42, purgePublic: 'false', visibility: 'private' }).success).toBe(false);
 	});
 });
