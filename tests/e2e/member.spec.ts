@@ -8,6 +8,7 @@ import {
 import { AwsClient } from 'aws4fetch';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
+import { user } from '../../src/db/auth-schema';
 import { createDatabase } from '../../src/db/client';
 import { mediaAssets, tags } from '../../src/db/schema';
 
@@ -883,6 +884,70 @@ test('tag metadata and merges invalidate every affected public page', async ({ b
 		await memberContext.close();
 		await ownerContext.close();
 		await publicContext.close();
+	}
+});
+
+test('owner-created temporary credentials block interactions until the password changes', async ({
+	baseURL,
+	browser,
+}) => {
+	test.skip(
+		!ownerUsername || !ownerPassword || !mutationsEnabled,
+		'Enable mutations with a dedicated E2E owner account.',
+	);
+	const suffix = Date.now().toString(36);
+	const username = `e2e_temp_${suffix}`;
+	const temporaryPassword = `Temporary-${suffix}!`;
+	const permanentPassword = `Permanent-${suffix}!`;
+	const ownerContext = await browser.newContext({ baseURL, storageState: ownerState! });
+	const ownerPage = await ownerContext.newPage();
+	let accountCreated = false;
+	let temporaryContext: BrowserContext | undefined;
+
+	try {
+		await ownerPage.goto('/owner/users');
+		const createSection = ownerPage.locator('section').filter({
+			has: ownerPage.getByRole('heading', { name: 'Create member' }),
+		});
+		await createSection.getByLabel('Username').fill(username);
+		await createSection.getByLabel('Temporary password').fill(temporaryPassword);
+		await createSection.getByLabel('Confirm password').fill(temporaryPassword);
+		await createSection.getByRole('button', { name: 'Create member' }).click();
+		await expect(ownerPage.getByRole('status').filter({ hasText: `@${username} was created.` })).toBeVisible();
+		accountCreated = true;
+
+		const temporaryState = await authenticatedState(browser, baseURL!, username, temporaryPassword);
+		temporaryContext = await browser.newContext({ baseURL, storageState: temporaryState });
+		const temporaryPage = await temporaryContext.newPage();
+		await temporaryPage.goto('/account');
+		await expect(
+			temporaryPage.getByText('Change your temporary password before creating or interacting with content.'),
+		).toBeVisible();
+
+		await temporaryPage.goto('/manage');
+		await expect(temporaryPage.getByRole('button', { name: 'Publish post' })).toHaveCount(0);
+		await expect(temporaryPage.getByText(/cannot create posts with the current account permissions/u)).toBeVisible();
+
+		await temporaryPage.goto('/account');
+		await temporaryPage.getByLabel('Current password').fill(temporaryPassword);
+		await temporaryPage.getByLabel('New password', { exact: true }).fill(permanentPassword);
+		await temporaryPage.getByLabel('Confirm new password').fill(permanentPassword);
+		await temporaryPage.getByRole('button', { name: 'Change password' }).click();
+		await expect(temporaryPage.getByRole('status').filter({ hasText: 'Your password has been changed.' })).toBeVisible();
+
+		await temporaryPage.goto('/manage');
+		await expect(temporaryPage.getByRole('button', { name: 'Publish post' })).toBeVisible();
+	} finally {
+		if (accountCreated) {
+			const databaseUrl = process.env.DATABASE_URL;
+			if (databaseUrl) {
+				await createDatabase(databaseUrl).delete(user).where(eq(user.username, username));
+			}
+		}
+		await Promise.allSettled([
+			temporaryContext?.close() ?? Promise.resolve(),
+			ownerContext.close(),
+		]);
 	}
 });
 
