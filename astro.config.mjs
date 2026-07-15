@@ -1,6 +1,5 @@
 // @ts-check
 import cloudflare from '@astrojs/cloudflare';
-import { cacheCloudflare } from '@astrojs/cloudflare/cache';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, memoryCache } from 'astro/config';
 
@@ -13,7 +12,10 @@ export default defineConfig({
 		imageService: 'compile',
 	}),
 	cache: {
-		provider: acceptanceRuntime ? memoryCache() : cacheCloudflare(),
+		provider: acceptanceRuntime ? memoryCache() : {
+			name: 'cloudflare',
+			entrypoint: new URL('./src/lib/cloudflare-cache-provider.ts', import.meta.url),
+		},
 	},
 	markdown: {
 		syntaxHighlight: false,

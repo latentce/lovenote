@@ -17,6 +17,7 @@ E2E_MEMBER_USERNAME=
 E2E_MEMBER_PASSWORD=
 E2E_OWNER_USERNAME=
 E2E_OWNER_PASSWORD=
-# Full acceptance is destructive and requires both explicit opt-ins.
+# Full acceptance is destructive and requires an isolation attestation plus both feature opt-ins.
+E2E_DATABASE_ISOLATED=0
 E2E_MUTATIONS=0
 E2E_UPLOADS=0

@@ -165,7 +165,7 @@ For the local production-runtime acceptance suite, prepare an isolated migrated 
 `pnpm exec playwright install chromium`, then run:
 
 ```sh
-E2E_MUTATIONS=1 E2E_UPLOADS=1 pnpm test:acceptance
+E2E_DATABASE_ISOLATED=1 E2E_MUTATIONS=1 E2E_UPLOADS=1 pnpm test:acceptance
 ```
 
 Playwright selects the named `acceptance` Wrangler environment automatically. Its `MEDIA_BUCKET`
@@ -178,7 +178,10 @@ does not expose deployed Workers' `cache.purge()` API. Production builds continu
 Cloudflare CDN provider; cache-tag construction and purge failure behavior are covered by unit tests.
 
 `pnpm test:acceptance` is the release gate and refuses to run unless every required credential is
-present, both mutation/upload flags equal `1`, and the bucket is exactly `lovenote-media-test`.
+present, `E2E_DATABASE_ISOLATED=1`, both mutation/upload flags equal `1`, and the bucket is exactly
+`lovenote-media-test`. Set the database marker only after confirming `DATABASE_URL` points to a
+disposable database or Neon branch. Configure the same marker as an `E2E_DATABASE_ISOLATED`
+environment variable in the protected GitHub `acceptance` environment.
 Use `pnpm test:acceptance:smoke` for the explicitly non-mutating subset; it is not a substitute for
 the release gate. The local runner loads an ignored `.dev.vars` when it exists. Member coverage uses
 `E2E_MEMBER_USERNAME` and `E2E_MEMBER_PASSWORD`; owner coverage uses `E2E_OWNER_USERNAME` and
