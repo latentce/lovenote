@@ -67,4 +67,16 @@ test.describe('anonymous access controls', () => {
 		expect(response.headers()['content-type']).toContain('text/plain');
 		expect(await response.text()).toBe('Not found.');
 	});
+
+	test('public registration remains unavailable at the HTTP boundary', async ({ request }) => {
+		const response = await request.post('/api/auth/sign-up/email', {
+			data: {
+				email: 'blocked@test.invalid',
+				name: 'Blocked',
+				password: 'not-a-real-password',
+			},
+		});
+		expect(response.status()).toBe(404);
+		expect(response.headers()['cache-control']).toContain('no-store');
+	});
 });

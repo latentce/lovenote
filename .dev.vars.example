@@ -1,5 +1,7 @@
 # Copy to .dev.vars. Never commit real credentials.
 DATABASE_URL=postgresql://user:password@host/database?sslmode=require
+# A separate empty disposable Neon database or branch used only by integration tests.
+INTEGRATION_DATABASE_URL=postgresql://user:password@host/lovenote_integration?sslmode=require
 BETTER_AUTH_SECRET=replace-with-at-least-32-random-characters
 SETUP_SECRET=replace-with-a-separate-long-random-secret
 R2_ACCESS_KEY_ID=replace-with-r2-access-key-id
@@ -15,3 +17,6 @@ E2E_MEMBER_USERNAME=
 E2E_MEMBER_PASSWORD=
 E2E_OWNER_USERNAME=
 E2E_OWNER_PASSWORD=
+# Full acceptance is destructive and requires both explicit opt-ins.
+E2E_MUTATIONS=0
+E2E_UPLOADS=0

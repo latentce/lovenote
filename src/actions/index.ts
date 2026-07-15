@@ -1,4 +1,5 @@
 import { account } from './account';
+import { cachePurgeActions } from './cache-purges';
 import { commentActions } from './comments';
 import { favoriteActions } from './favorites';
 import { postDeletionActions } from './post-deletion';
@@ -11,6 +12,7 @@ import { userActions } from './users';
 
 export const server = {
 	account,
+	cachePurges: cachePurgeActions,
 	comments: commentActions,
 	favorites: favoriteActions,
 	postDeletion: postDeletionActions,

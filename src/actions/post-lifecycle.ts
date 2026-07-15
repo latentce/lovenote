@@ -3,6 +3,7 @@ import { ActionError, defineAction } from 'astro:actions';
 import { setPostStatus } from '../db/post-mutations';
 import { AuthorizationError, isOwner, requireCapability } from '../lib/authorization';
 import { postLifecycleCacheTags } from '../lib/cache-invalidation';
+import { preserveFailedPrivacyPurge } from '../lib/cache-purge-job';
 import {
 	postLifecycleInputSchema,
 	type PostLifecycleInput,
@@ -62,11 +63,19 @@ async function changePostStatus(
 	}
 
 	let cachePurged = true;
+	const cacheTags = postLifecycleCacheTags(post, nextStatus);
 	if (cache.enabled) {
 		try {
-			await cache.invalidate({ tags: postLifecycleCacheTags(post, nextStatus) });
+			await cache.invalidate({ tags: cacheTags });
 		} catch (error) {
 			cachePurged = false;
+			if (nextStatus === 'hidden' && post.visibility === 'public') {
+				await preserveFailedPrivacyPurge(locals.database, {
+					operation: 'post-hide-access-reduction',
+					postId: post.id,
+					tags: cacheTags,
+				}, error);
+			}
 			console.error(
 				JSON.stringify({
 					errorType: error instanceof Error ? error.name : 'UnknownError',

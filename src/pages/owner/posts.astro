@@ -2,6 +2,7 @@
 import { actions, isInputError } from 'astro:actions';
 
 import PostBody from '../../components/PostBody.astro';
+import { listCachePurgeJobs } from '../../db/cache-purge-jobs';
 import { listModeratablePosts, MODERATABLE_POST_LIMIT } from '../../db/post-moderation-queries';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { isOwner } from '../../lib/authorization';
@@ -21,8 +22,10 @@ const hideResult = Astro.getActionResult(actions.postLifecycle.hide);
 const restoreResult = Astro.getActionResult(actions.postLifecycle.restore);
 const deletionResult = Astro.getActionResult(actions.postDeletion.delete);
 const cleanupResult = Astro.getActionResult(actions.uploads.cleanupExpired);
+const cachePurgeResult = Astro.getActionResult(actions.cachePurges.retry);
 const lifecycleResult = hideResult ?? restoreResult;
 const posts = owner ? await listModeratablePosts(Astro.locals.database) : [];
+const cachePurgeJobs = owner ? await listCachePurgeJobs(Astro.locals.database) : [];
 const lifecycleSuccess = lifecycleResult?.data?.cachePurged
 	? `Post #${lifecycleResult.data.postId} is now ${lifecycleResult.data.status}.`
 	: null;
@@ -93,6 +96,35 @@ const formatDateTime = (date: Date) => new Intl.DateTimeFormat('en-US', {
 						<label class="flex items-start gap-2 text-sm text-stone-800"><input type="checkbox" name="confirmation" value="cleanup" required class="mt-1" /><span>Confirm expired upload cleanup.</span></label>
 						<button type="submit" class="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold hover:bg-stone-50">Run cleanup</button>
 					</form>
+				</section>
+
+				<section class="mt-7 rounded-2xl border border-stone-200 bg-white p-4" aria-labelledby="cache-recovery-heading">
+					<h2 id="cache-recovery-heading" class="font-semibold text-stone-950">Privacy cache recovery</h2>
+					<p class="mt-2 text-sm text-stone-600">Retry failed public-cache purges recorded while a post was hidden or made private.</p>
+					{cachePurgeResult?.data?.completed && (
+						<p class="mt-3 text-sm text-emerald-800" role="status">The pending cache purge was completed.</p>
+					)}
+					{cachePurgeResult?.data?.completed === false && (
+						<p class="mt-3 text-sm text-amber-800" role="alert">The cache provider still could not complete that purge. It remains queued.</p>
+					)}
+					{cachePurgeResult?.error && (
+						<p class="mt-3 text-sm text-red-800" role="alert">{isInputError(cachePurgeResult.error) ? 'The cache recovery request was invalid.' : cachePurgeResult.error.message}</p>
+					)}
+					{cachePurgeJobs.length === 0 ? (
+						<p class="mt-4 text-sm text-emerald-800">No privacy cache purges are pending.</p>
+					) : (
+						<ul class="mt-4 space-y-3">
+							{cachePurgeJobs.map((job) => (
+								<li class="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+									<p>Post #{job.postId ?? 'unknown'} · {job.operation} · {job.attemptCount} {job.attemptCount === 1 ? 'attempt' : 'attempts'}</p>
+									<form method="POST" action={actions.cachePurges.retry} class="mt-2">
+										<input type="hidden" name="jobId" value={job.id} />
+										<button type="submit" class="rounded-lg border border-amber-400 bg-white px-3 py-2 font-semibold hover:bg-amber-100">Retry purge</button>
+									</form>
+								</li>
+							))}
+						</ul>
+					)}
 				</section>
 
 				{lifecycleSuccess && (

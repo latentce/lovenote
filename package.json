@@ -17,15 +17,19 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "owner:recover": "tsx scripts/recover-owner-password.ts",
+    "config:check": "tsx scripts/verify-production-config.ts",
     "check": "astro check",
     "test": "vitest run",
+    "test:worker": "vitest run --config vitest.worker.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:integration:local": "tsx scripts/run-local-integration.ts",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:acceptance": "LOVENOTE_ACCEPTANCE=1 CLOUDFLARE_ENV=acceptance pnpm build && playwright test",
+    "test:acceptance": "tsx scripts/verify-acceptance-environment.ts && LOVENOTE_ACCEPTANCE=1 CLOUDFLARE_ENV=acceptance pnpm build && playwright test",
+    "test:acceptance:smoke": "E2E_MUTATIONS=0 E2E_UPLOADS=0 LOVENOTE_ACCEPTANCE=1 CLOUDFLARE_ENV=acceptance pnpm build && playwright test",
     "build": "astro check && astro build",
     "preview": "astro preview",
-    "deploy": "pnpm build && wrangler deploy",
+    "deploy": "pnpm config:check && pnpm build && wrangler deploy",
     "tail": "wrangler tail",
     "astro": "astro"
   },
@@ -43,6 +47,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
+    "@cloudflare/vitest-pool-workers": "^0.18.5",
     "@cloudflare/workers-types": "^5.20260714.1",
     "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.1",
@@ -51,6 +56,6 @@
     "tsx": "^4.23.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10",
-    "wrangler": "^4.110.0"
+    "wrangler": "^4.111.0"
   }
 }

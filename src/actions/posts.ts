@@ -4,6 +4,7 @@ import { updateOwnPost } from '../db/post-edit-mutations';
 import { createPost } from '../db/post-mutations';
 import { AuthorizationError, requireCapability } from '../lib/authorization';
 import { postCreationCacheTags, postEditCacheTags } from '../lib/cache-invalidation';
+import { preserveFailedPrivacyPurge } from '../lib/cache-purge-job';
 import { createPostInputSchema, editPostInputSchema } from '../lib/post';
 
 function authorizePostCreation(locals: App.Locals) {
@@ -132,11 +133,19 @@ export const postActions = {
 			let cachePurged = true;
 			const purgePublic = input.purgePublic ||
 				post.previousVisibility === 'public' || post.visibility === 'public';
+			const cacheTags = postEditCacheTags(post, purgePublic);
 			if (cache.enabled) {
 				try {
-					await cache.invalidate({ tags: postEditCacheTags(post, purgePublic) });
+					await cache.invalidate({ tags: cacheTags });
 				} catch (error) {
 					cachePurged = false;
+					if (post.previousVisibility === 'public' && post.visibility === 'private') {
+						await preserveFailedPrivacyPurge(locals.database, {
+							operation: 'post-edit-access-reduction',
+							postId: post.id,
+							tags: cacheTags,
+						}, error);
+					}
 					console.error(
 						JSON.stringify({
 							errorType: error instanceof Error ? error.name : 'UnknownError',

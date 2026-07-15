@@ -50,6 +50,9 @@ export default defineConfig({
 		},
 	},
 	vite: {
+		optimizeDeps: {
+			include: ['astro/actions/runtime/entrypoints/route.js'],
+		},
 		plugins: [tailwindcss()],
 	},
 });

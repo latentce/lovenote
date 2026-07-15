@@ -1032,3 +1032,23 @@ test('the sole owner can reach every owner console', async ({ baseURL, browser }
 
 	await context.close();
 });
+
+test('the public auth handler blocks owner-only Better Auth endpoints', async ({ baseURL, browser }) => {
+	test.skip(!ownerUsername || !ownerPassword, 'Set dedicated E2E owner credentials to run this test.');
+	const context = await browser.newContext({ baseURL, storageState: ownerState! });
+
+	for (const path of [
+		'/api/auth/admin/create-user',
+		'/api/auth/admin/impersonate-user',
+		'/api/auth/admin/remove-user',
+		'/api/auth/admin/set-role',
+		'/api/auth/change-password',
+		'/api/auth/update-user',
+	]) {
+		const response = await context.request.post(path, { data: {} });
+		expect(response.status(), path).toBe(404);
+		expect(response.headers()['cache-control'], path).toContain('no-store');
+	}
+
+	await context.close();
+});

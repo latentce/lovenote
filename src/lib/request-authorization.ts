@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import { memberPermissions } from '../db/schema';
 import type { Auth, AuthenticatedSession, AuthenticatedUser } from './auth';
-import { isActiveMember, type MemberPermissions } from './authorization';
+import { isActiveMember, isOwner, type MemberPermissions } from './authorization';
 
 export interface RequestAuthorization {
 	permissions: MemberPermissions | null;
@@ -25,6 +25,9 @@ export async function loadRequestAuthorization(
 	const permissions = await database.query.memberPermissions.findFirst({
 		where: eq(memberPermissions.userId, sessionResult.user.id),
 	});
+	if (!permissions && !isOwner(sessionResult.user)) {
+		return { permissions: null, session: null, user: null };
+	}
 
 	return {
 		permissions: permissions ?? null,

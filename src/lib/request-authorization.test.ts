@@ -90,4 +90,25 @@ describe('request authorization loading', () => {
 		});
 		expect(findFirst).not.toHaveBeenCalled();
 	});
+
+	it('does not treat an incomplete regular auth account as a member', async () => {
+		const auth = authReturning({ session, user: member } as AuthSessionResult);
+		const { database } = databaseReturning(undefined);
+
+		await expect(loadRequestAuthorization(auth, database, new Headers())).resolves.toEqual({
+			permissions: null,
+			session: null,
+			user: null,
+		});
+	});
+
+	it('keeps the owner recoverable if its capability row is unexpectedly missing', async () => {
+		const owner = { ...member, role: 'admin' };
+		const auth = authReturning({ session, user: owner } as AuthSessionResult);
+		const { database } = databaseReturning(undefined);
+
+		const authorization = await loadRequestAuthorization(auth, database, new Headers());
+		expect(authorization.user).toEqual(owner);
+		expect(authorization.permissions).toBeNull();
+	});
 });

@@ -55,6 +55,25 @@ export const memberPermissions = pgTable('member_permissions', {
 	...timestamps,
 });
 
+export const cachePurgeJobs = pgTable(
+	'cache_purge_jobs',
+	{
+		id: serial('id').primaryKey(),
+		operation: varchar('operation', { length: 64 }).notNull(),
+		postId: integer('post_id'),
+		tags: text('tags').array().notNull(),
+		attemptCount: integer('attempt_count').default(1).notNull(),
+		lastErrorType: varchar('last_error_type', { length: 128 }).notNull(),
+		lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }).defaultNow().notNull(),
+		...timestamps,
+	},
+	(table) => [
+		index('cache_purge_jobs_created_idx').on(table.createdAt, table.id),
+		check('cache_purge_jobs_tags_check', sql`cardinality(${table.tags}) > 0`),
+		check('cache_purge_jobs_attempt_count_check', sql`${table.attemptCount} > 0`),
+	],
+);
+
 export const posts = pgTable(
 	'posts',
 	{
@@ -92,8 +111,8 @@ export const mediaAssets = pgTable(
 		originalFilename: varchar('original_filename', { length: 255 }).notNull(),
 		mimeType: varchar('mime_type', { length: 255 }).notNull(),
 		byteSize: bigint('byte_size', { mode: 'number' }).notNull(),
-		width: integer('width'),
-		height: integer('height'),
+		width: integer('width').notNull(),
+		height: integer('height').notNull(),
 		durationMs: integer('duration_ms'),
 		etag: text('etag'),
 		altText: varchar('alt_text', { length: 1000 }).default('').notNull(),
@@ -115,23 +134,41 @@ export const mediaAssets = pgTable(
 		check('media_assets_byte_size_check', sql`${table.byteSize} > 0`),
 		check(
 			'media_assets_dimensions_check',
-			sql`(${table.width} is null or ${table.width} > 0) and (${table.height} is null or ${table.height} > 0)`,
+			sql`${table.width} between 1 and 100000 and ${table.height} between 1 and 100000`,
 		),
 		check(
-			'media_assets_duration_check',
-			sql`${table.durationMs} is null or ${table.durationMs} >= 0`,
+			'media_assets_kind_metadata_check',
+			sql`(${table.kind} = 'image' and ${table.durationMs} is null) or (${table.kind} = 'video' and ${table.durationMs} > 0)`,
+		),
+		check(
+			'media_assets_kind_mime_check',
+			sql`(${table.kind} = 'image' and ${table.mimeType} in ('image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif')) or (${table.kind} = 'video' and ${table.mimeType} in ('video/mp4', 'video/webm'))`,
+		),
+		check(
+			'media_assets_kind_size_check',
+			sql`(${table.kind} = 'image' and ${table.byteSize} <= 52428800) or (${table.kind} = 'video' and ${table.byteSize} <= 262144000)`,
 		),
 		check(
 			'media_assets_attachment_order_check',
 			sql`${table.attachmentOrder} is null or ${table.attachmentOrder} between 0 and 3`,
 		),
+		check('media_assets_filename_not_empty_check', sql`char_length(${table.originalFilename}) > 0`),
 		check(
-			'media_assets_attachment_pair_check',
-			sql`(${table.postId} is null and ${table.attachmentOrder} is null) or (${table.postId} is not null and ${table.attachmentOrder} is not null)`,
-		),
-		check(
-			'media_assets_ready_etag_check',
-			sql`${table.uploadState} = 'pending' or ${table.etag} is not null`,
+			'media_assets_state_check',
+			sql`(
+					${table.uploadState} = 'pending'
+					and ${table.postId} is null
+					and ${table.attachmentOrder} is null
+					and ${table.etag} is null
+					and ${table.expiresAt} is not null
+				) or (
+					${table.uploadState} = 'ready'
+					and ${table.etag} is not null
+					and (
+						(${table.postId} is null and ${table.attachmentOrder} is null and ${table.expiresAt} is not null)
+						or (${table.postId} is not null and ${table.attachmentOrder} is not null and ${table.expiresAt} is null)
+					)
+			)`,
 		),
 		check('media_assets_delivery_revision_check', sql`${table.deliveryRevision} > 0`),
 	],
@@ -146,11 +183,13 @@ export const tags = pgTable(
 		description: text('description').default('').notNull(),
 		...timestamps,
 	},
-	(table) => [
-		uniqueIndex('tags_slug_unique').on(table.slug),
-		check('tags_slug_lowercase_check', sql`${table.slug} = lower(${table.slug})`),
-		check('tags_slug_not_empty_check', sql`char_length(${table.slug}) > 0`),
-	],
+		(table) => [
+			uniqueIndex('tags_slug_unique').on(table.slug),
+			check('tags_slug_lowercase_check', sql`${table.slug} = lower(${table.slug})`),
+			check('tags_slug_not_empty_check', sql`char_length(${table.slug}) > 0`),
+			check('tags_display_name_not_empty_check', sql`char_length(${table.displayName}) > 0`),
+			check('tags_description_length_check', sql`char_length(${table.description}) <= 1000`),
+		],
 );
 
 export const postTags = pgTable(

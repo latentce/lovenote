@@ -16,7 +16,7 @@
   ],
   "vars": {
     "SITE_URL": "https://lovenote.example.com",
-    "R2_ACCOUNT_ID": "replace-with-cloudflare-account-id",
+    "R2_ACCOUNT_ID": "0de76f4cb5141aec57087740b58a590f",
     "R2_BUCKET_NAME": "lovenote-media"
   },
   "env": {

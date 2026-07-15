@@ -9,8 +9,10 @@ import { user } from '../../src/db/auth-schema';
 import { createDatabase } from '../../src/db/client';
 import { createPost } from '../../src/db/post-mutations';
 import { findPostDetail, listPrivatePosts, listPublicPosts } from '../../src/db/post-queries';
+import { createOwner } from '../../src/lib/setup';
 import {
 	comments,
+	cachePurgeJobs,
 	favorites,
 	mediaAssets,
 	memberPermissions,
@@ -40,6 +42,12 @@ let privatePostId: number;
 let authorHiddenPostId: number;
 let otherHiddenPostId: number;
 let deletingPostId: number;
+let concurrentSetupResult: {
+	createdIds: Array<string | null>;
+	ownerCount: number;
+	permissionCount: number;
+	setupCount: number;
+};
 
 function fixtureUser(id: string, role: 'admin' | 'user' = 'user') {
 	return { banned: false, id, role } as AuthenticatedUser;
@@ -230,12 +238,45 @@ beforeAll(async () => {
 	await migrate(database, { migrationsFolder: './drizzle' });
 	schemaReady = true;
 	await assertDisposableDatabaseIsEmpty();
+
+	const createdIds = await Promise.all([
+		createOwner(database, {
+			password: 'integration-owner-password-one',
+			username: 'Concurrent.Owner.One',
+		}),
+		createOwner(database, {
+			password: 'integration-owner-password-two',
+			username: 'Concurrent.Owner.Two',
+		}),
+	]);
+	const [[ownerRow], [permissionRow], [setupRow]] = await Promise.all([
+		database.select({ value: count() }).from(user).where(eq(user.role, 'admin')),
+		database.select({ value: count() }).from(memberPermissions),
+		database.select({ value: count() }).from(setupState),
+	]);
+	concurrentSetupResult = {
+		createdIds,
+		ownerCount: ownerRow.value,
+		permissionCount: permissionRow.value,
+		setupCount: setupRow.value,
+	};
+	const createdUserIds = createdIds.filter((id): id is string => id !== null);
+	if (createdUserIds.length > 0) await database.delete(user).where(inArray(user.id, createdUserIds));
+	await database.delete(setupState);
+	await assertDisposableDatabaseIsEmpty();
 	await seedFixtures();
 });
 
 afterAll(async () => {
 	if (!schemaReady) return;
 
+	await database.delete(cachePurgeJobs).where(inArray(cachePurgeJobs.postId, [
+		newestPublicPostId,
+		privatePostId,
+		authorHiddenPostId,
+		otherHiddenPostId,
+		deletingPostId,
+	]));
 	await database.delete(posts).where(inArray(posts.authorId, fixtureUserIds));
 	await database.delete(mediaAssets).where(inArray(mediaAssets.uploaderId, fixtureUserIds));
 	if (tagIds.length > 0) {
@@ -245,6 +286,15 @@ afterAll(async () => {
 });
 
 describe('Neon database acceptance', () => {
+	it('allows exactly one concurrent one-time owner setup', () => {
+		expect(concurrentSetupResult.createdIds.filter((id) => id !== null)).toHaveLength(1);
+		expect(concurrentSetupResult).toMatchObject({
+			ownerCount: 1,
+			permissionCount: 1,
+			setupCount: 1,
+		});
+	});
+
 	it('applies every committed migration and creates the expected schema', async () => {
 		const [permissionCount] = await database
 			.select({ value: count() })
@@ -264,6 +314,55 @@ describe('Neon database acceptance', () => {
 		await expect(
 			database.insert(postTags).values({ postId: deletingPostId, tagId: tagIds[0] }),
 		).rejects.toThrow();
+	});
+
+	it('enforces media metadata, lifecycle state, and tag metadata constraints', async () => {
+		await expect(database.insert(mediaAssets).values({
+			byteSize: 100,
+			durationMs: 1,
+			expiresAt: new Date('2100-01-01T00:00:00.000Z'),
+			height: 10,
+			kind: 'image',
+			mimeType: 'image/webp',
+			objectKey: `integration/${runId}/invalid-image-duration.webp`,
+			originalFilename: 'invalid-image-duration.webp',
+			uploaderId: authorId,
+			uploadState: 'pending',
+			width: 10,
+		})).rejects.toThrow();
+
+		await expect(database.insert(mediaAssets).values({
+			attachmentOrder: 0,
+			byteSize: 100,
+			expiresAt: new Date('2100-01-01T00:00:00.000Z'),
+			height: 10,
+			kind: 'image',
+			mimeType: 'image/webp',
+			objectKey: `integration/${runId}/invalid-pending-attachment.webp`,
+			originalFilename: 'invalid-pending-attachment.webp',
+			postId: authorHiddenPostId,
+			uploaderId: authorId,
+			uploadState: 'pending',
+			width: 10,
+		})).rejects.toThrow();
+
+		await expect(database.insert(tags).values({
+			description: 'x'.repeat(1001),
+			displayName: 'Invalid description',
+			slug: `integration-${runId}-invalid-description`,
+		})).rejects.toThrow();
+	});
+
+	it('persists and clears failed privacy cache purges', async () => {
+		const [job] = await database.insert(cachePurgeJobs).values({
+			lastErrorType: 'IntegrationFailure',
+			operation: 'post-hide-access-reduction',
+			postId: newestPublicPostId,
+			tags: ['feed', `post:${newestPublicPostId}`],
+		}).returning({ id: cachePurgeJobs.id });
+
+		expect(job?.id).toBeTypeOf('number');
+		await database.delete(cachePurgeJobs).where(eq(cachePurgeJobs.id, job!.id));
 	});
 
 	it('orders attachments and isolates the public media archive', async () => {
@@ -293,8 +392,10 @@ describe('Neon database acceptance', () => {
 		await database.insert(mediaAssets).values([
 			{
 				byteSize: 200,
+				durationMs: 1_000,
 				etag: 'integration-ordered-video',
 				expiresAt: new Date('2100-01-01T00:00:00.000Z'),
+				height: 20,
 				id: orderedVideoId,
 				kind: 'video',
 				mimeType: 'video/webm',
@@ -302,11 +403,13 @@ describe('Neon database acceptance', () => {
 				originalFilename: 'ordered.webm',
 				uploaderId: authorId,
 				uploadState: 'ready',
+				width: 20,
 			},
 			{
 				byteSize: 100,
 				etag: 'integration-ordered-image',
 				expiresAt: new Date('2100-01-01T00:00:00.000Z'),
+				height: 20,
 				id: orderedImageId,
 				kind: 'image',
 				mimeType: 'image/webp',
@@ -314,11 +417,13 @@ describe('Neon database acceptance', () => {
 				originalFilename: 'ordered.webp',
 				uploaderId: authorId,
 				uploadState: 'ready',
+				width: 20,
 			},
 			{
 				byteSize: 100,
 				etag: 'integration-other-user',
 				expiresAt: new Date('2100-01-01T00:00:00.000Z'),
+				height: 20,
 				id: otherUserAssetId,
 				kind: 'image',
 				mimeType: 'image/webp',
@@ -326,11 +431,13 @@ describe('Neon database acceptance', () => {
 				originalFilename: 'other-user.webp',
 				uploaderId: otherId,
 				uploadState: 'ready',
+				width: 20,
 			},
 			{
 				byteSize: 100,
 				etag: 'integration-expired',
 				expiresAt: new Date('2000-01-01T00:00:00.000Z'),
+				height: 20,
 				id: expiredAssetId,
 				kind: 'image',
 				mimeType: 'image/webp',
@@ -338,6 +445,7 @@ describe('Neon database acceptance', () => {
 				originalFilename: 'expired.webp',
 				uploaderId: authorId,
 				uploadState: 'ready',
+				width: 20,
 			},
 		]);
 

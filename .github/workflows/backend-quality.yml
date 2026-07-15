@@ -1,0 +1,30 @@
+name: Backend quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm test:worker
+      - run: pnpm build
+      - run: pnpm exec wrangler types worker-configuration.d.ts --include-runtime false --check
+      - run: pnpm exec wrangler deploy --dry-run
+      - run: pnpm audit --audit-level low

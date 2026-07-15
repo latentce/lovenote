@@ -65,6 +65,9 @@ pnpm db:migrate
 
 The Worker never runs migrations during startup or a request.
 
+For local Drizzle commands, `drizzle.config.ts` loads an ignored `.dev.vars` when present. Shell
+export syntax is not required for connection strings containing query parameters.
+
 ### R2
 
 Create the private media bucket configured in `wrangler.jsonc`:
@@ -95,6 +98,10 @@ Replace the placeholder values in `wrangler.jsonc`:
 - `R2_BUCKET_NAME`: the same bucket used by `MEDIA_BUCKET`
 - `r2_buckets[0].bucket_name`: the production bucket name
 
+`pnpm config:check` rejects placeholder origins, malformed account IDs, production/test bucket
+reuse, missing secret declarations, and an incorrectly isolated acceptance binding. `pnpm deploy`
+runs this preflight automatically before it builds or contacts Cloudflare.
+
 Attach the Worker to the proxied production hostname as a Cloudflare Custom Domain or route. `SITE_URL`, the R2 CORS origin, and the browser-visible hostname must agree.
 
 Set secrets interactively so their values do not appear in the command or repository:
@@ -115,6 +122,10 @@ Regenerate binding types after any Wrangler binding, variable, or secret declara
 pnpm typegen
 ```
 
+Astro's Cloudflare adapter automatically provisions and uses a `SESSION` KV binding for Astro
+sessions. It is framework-managed infrastructure; LoveNote authentication remains stored by Better
+Auth in Postgres.
+
 ## Verify and deploy
 
 Run the full verification sequence:
@@ -122,8 +133,10 @@ Run the full verification sequence:
 ```sh
 pnpm check
 pnpm test
+pnpm test:worker
 pnpm build
 pnpm wrangler deploy --dry-run
+pnpm audit --audit-level low
 ```
 
 Database acceptance tests apply every committed migration and exercise constraints, cascades,
@@ -138,12 +151,21 @@ The command refuses to run when that URL is missing or matches `DATABASE_URL`, a
 before inserting fixtures if any application table is already populated. Delete the disposable
 branch after the run.
 
-For the local production-runtime smoke suite, prepare an isolated migrated Neon branch and the
+When `.dev.vars` points to the isolated `lovenote_test` database, this local convenience command
+creates or resets a sibling `lovenote_test_integration` database and runs the suite there:
+
+```sh
+pnpm test:integration:local
+```
+
+It refuses to reset anything unless the source database name ends in `_test`.
+
+For the local production-runtime acceptance suite, prepare an isolated migrated Neon branch and the
 `lovenote-media-test` R2 bucket in `.dev.vars`, install Chromium once with
 `pnpm exec playwright install chromium`, then run:
 
 ```sh
-pnpm test:acceptance
+E2E_MUTATIONS=1 E2E_UPLOADS=1 pnpm test:acceptance
 ```
 
 Playwright selects the named `acceptance` Wrangler environment automatically. Its `MEDIA_BUCKET`
@@ -155,13 +177,19 @@ Acceptance preview uses Astro's in-memory cache provider because Cloudflare's re
 does not expose deployed Workers' `cache.purge()` API. Production builds continue to use the
 Cloudflare CDN provider; cache-tag construction and purge failure behavior are covered by unit tests.
 
-Anonymous, JavaScript-disabled, access-control, media-probe, and security-header checks run by default.
-The local runner loads an ignored `.dev.vars` when it exists. Optional member coverage uses
+`pnpm test:acceptance` is the release gate and refuses to run unless every required credential is
+present, both mutation/upload flags equal `1`, and the bucket is exactly `lovenote-media-test`.
+Use `pnpm test:acceptance:smoke` for the explicitly non-mutating subset; it is not a substitute for
+the release gate. The local runner loads an ignored `.dev.vars` when it exists. Member coverage uses
 `E2E_MEMBER_USERNAME` and `E2E_MEMBER_PASSWORD`; owner coverage uses `E2E_OWNER_USERNAME` and
-`E2E_OWNER_PASSWORD`. Set `E2E_MUTATIONS=1` only for a disposable member with a non-temporary
-password to exercise private text creation/deletion, and additionally set `E2E_UPLOADS=1` to
-exercise the real direct-R2 upload path. The mutation tests delete the posts they create. Set
+`E2E_OWNER_PASSWORD`. Use only a disposable member with a non-temporary password. The suite deletes
+the posts and R2 objects it creates. Set
 `E2E_BASE_URL` to test an already-running preview or deployment instead of starting local workerd.
+
+GitHub Actions runs diagnostics, Node unit tests, local workerd runtime tests, a production build,
+binding-generation checks, dry-run packaging, and dependency audit on pushes and pull requests. The
+manually dispatched acceptance workflow requires isolated Neon/R2 credentials in the `acceptance`
+GitHub environment and runs the real-Postgres and full Playwright gates serially.
 
 For a production change:
 
@@ -222,12 +250,16 @@ A Worker rollback does not revert Postgres. Prefer backward-compatible migration
 | `pnpm db:migrate` | Apply committed migrations explicitly |
 | `pnpm db:studio` | Open Drizzle Studio |
 | `pnpm owner:recover` | Reset the sole owner's password and sessions |
+| `pnpm config:check` | Reject unsafe or placeholder production Wrangler configuration |
 | `pnpm check` | Run Astro and TypeScript diagnostics |
 | `pnpm test` | Run backend tests once |
+| `pnpm test:worker` | Run runtime-sensitive tests inside local workerd with emulated bindings |
 | `pnpm test:integration` | Apply migrations and run database acceptance tests on a disposable Neon branch |
+| `pnpm test:integration:local` | Reset the isolated local integration database and run its tests |
 | `pnpm test:watch` | Run backend tests in watch mode |
 | `pnpm test:e2e` | Run Playwright against an existing build or `E2E_BASE_URL` |
-| `pnpm test:acceptance` | Build, start local workerd, and run Playwright smoke tests |
+| `pnpm test:acceptance` | Require full isolated credentials, build, and run every Playwright scenario |
+| `pnpm test:acceptance:smoke` | Run only the explicitly non-mutating Playwright subset |
 | `pnpm build` | Check and build the production Worker |
 | `pnpm preview` | Run the built application in local workerd |
 | `pnpm deploy` | Verify and deploy with Wrangler |

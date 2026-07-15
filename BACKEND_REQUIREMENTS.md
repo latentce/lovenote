@@ -114,6 +114,11 @@ The following public authentication features are disabled:
 - Password-reset email flows.
 - OAuth providers.
 
+The public Better Auth catch-all exposes only `GET /get-session`, `POST /sign-in/username`, and
+`POST /sign-out`. Better Auth's admin, role, account-removal, impersonation, registration, profile,
+and password-mutation HTTP endpoints return the same generic non-cacheable 404. Owner and account
+operations use the application's separately authorized Astro Actions.
+
 ### 4.2 One-time owner setup
 
 - `/setup` is never cacheable.
@@ -182,6 +187,7 @@ Authorization requirements:
 - The owner always passes capability checks.
 - A regular member must be active, have a non-temporary password, and have the relevant current capability.
 - Capabilities are loaded from Postgres for each request; revocation applies to an existing session immediately.
+- A regular Better Auth user without a `member_permissions` record is rejected as an incomplete account and cannot read private content. The sole owner remains recoverable if that row is missing.
 - Every action repeats authorization and ownership checks server-side.
 - UI visibility is not considered an authorization boundary.
 
@@ -337,6 +343,7 @@ The route must:
 - Only unconditional full public GET responses are eligible for shared caching.
 - Public media cache entries are tagged by asset ID and delivery revision.
 - Reducing access rotates the revision and synchronously attempts to purge the former public entry.
+- A failed access-reduction purge is persisted as an owner-visible recovery job containing only exact cache tags, an operation name, retry count, and error type. It is deleted only after a successful owner retry.
 - An already-downloaded browser copy cannot be remotely revoked; revision rotation and edge purging prevent later access through the application/CDN.
 
 ## 9. Tags
@@ -403,7 +410,7 @@ Public cursor pagination uses opaque URL-safe base64 payloads containing `(creat
 | Route | Requirement |
 | --- | --- |
 | `/account` | Password change and session logout controls |
-| `/private` | Newest-first active public/private member feed |
+| `/private` | Newest-first active private-post feed, plus eligible hidden posts for their author or the owner |
 | `/manage` | Post composer and the author's 50 newest posts |
 | `/manage/posts/{id}` | Edit one owned, non-deleting post |
 | `/owner/users` | Account, capability, ban, password, and session controls |
@@ -445,18 +452,20 @@ The schema includes Better Auth's user, session, account, verification, and data
 | `post_tags` | Unique post/tag associations |
 | `comments` | Author, post, body, moderation state |
 | `favorites` | Unique user/post favorites |
+| `cache_purge_jobs` | Durable owner recovery for failed privacy-reducing CDN purges |
 
 Database constraints and queries enforce:
 
 - Post body length.
 - Positive media sizes and dimensions.
-- Media duration validity.
+- MIME/kind-specific size ceilings, allowed MIME sets, and duration validity.
 - At most four attachment-order slots per post.
 - One attachment per order position.
 - Consistent attached/unattached media state.
 - Ready uploads having an ETag.
 - Positive delivery revisions.
 - Lowercase, non-empty, unique tag slugs.
+- Non-empty tag display names and descriptions no longer than 1,000 characters.
 - Unique post/tag joins.
 - Non-empty comments up to 2,000 characters.
 - Unique favorites.
@@ -496,7 +505,10 @@ Mutations construct narrowly scoped invalidation sets:
 - Comments/favorites: the affected post detail.
 - Tag update/merge: tag index, source/target tag archives, and every affected public post detail.
 
-Cache-invalidation failures are logged without exposing private data. Destructive operations that require cache safety remain retryable. Local workerd acceptance uses Astro's memory cache because the remote R2 proxy does not provide deployed Cloudflare cache-purge APIs.
+Cache-invalidation failures are logged without exposing private data. Deleting posts remain in a
+retryable `deleting` state, while failed hide or public-to-private purges create durable
+`cache_purge_jobs` that the owner retries from `/owner/posts`. Local workerd acceptance uses Astro's
+memory cache because the remote R2 proxy does not provide deployed Cloudflare cache-purge APIs.
 
 ## 15. Security requirements
 
@@ -529,6 +541,8 @@ Global security headers include:
 - Hidden posts are author/owner-only.
 - Deleting posts are invisible to every viewer.
 - Ownership checks are repeated inside mutation queries to resist stale page state and forged form fields.
+- Only the three required session/sign-in/sign-out Better Auth routes cross the public HTTP boundary.
+- A valid application membership row is required before a regular Better Auth session is treated as a private-content member.
 
 ### 15.3 Secrets
 
@@ -564,12 +578,15 @@ Before backend release, the repository must pass:
 - A production Worker build.
 - Playwright acceptance tests against a workerd preview using disposable Neon and private R2 resources.
 - `wrangler deploy --dry-run` packaging.
+- Cloudflare workerd runtime tests with locally emulated R2.
+- A dependency audit with no known vulnerabilities.
 
 The current implemented baseline has been verified with:
 
-- 211 unit tests across 33 files.
-- 7 real-Neon integration tests.
-- 29 workerd/Playwright acceptance scenarios.
+- 241 Node unit tests across 37 files.
+- 3 Cloudflare workerd runtime tests.
+- 10 real-Neon integration tests, including concurrent one-time setup.
+- 31 workerd/Playwright acceptance scenarios with mutations and uploads enabled and no skips.
 - Direct R2 image/video uploads and cleanup.
 - Secure private media delivery and anonymous denial.
 - GET, HEAD, range, conditional, stale-revision, and metadata-mismatch media behavior.
